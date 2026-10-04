@@ -1,6 +1,0 @@
-{
-  "name": "Focal",
-  "description": "Turn your Android phone into a high-quality, 100% local webcam for Linux and desktop computers with zero cloud telemetry.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
