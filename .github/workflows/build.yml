@@ -32,17 +32,34 @@ jobs:
     - name: Run Unit Tests
       run: gradle testDebugUnitTest --stacktrace
 
-    - name: Build Split Architecture Debug APKs
-      run: gradle assembleDebug --stacktrace
+    - name: Generate Release Keystore
+      run: |
+        keytool -genkeypair -v \
+          -keystore release.keystore \
+          -alias focal \
+          -keyalg RSA \
+          -keysize 2048 \
+          -validity 10000 \
+          -storepass focalrelease \
+          -keypass focalrelease \
+          -dname "CN=Focal, OU=Focal, O=Focal, L=Local, S=Local, C=US"
+
+    - name: Build Split Architecture Release APKs
+      run: gradle assembleRelease --stacktrace
+      env:
+        KEYSTORE_PATH: ${{ github.workspace }}/release.keystore
+        STORE_PASSWORD: focalrelease
+        KEY_ALIAS: focal
+        KEY_PASSWORD: focalrelease
 
     - name: List Generated Split APKs
-      run: ls -la app/build/outputs/apk/debug/
+      run: ls -la app/build/outputs/apk/release/
 
     - name: Upload Split Architecture APKs
       uses: actions/upload-artifact@v4
       with:
         name: focal-split-apks
-        path: app/build/outputs/apk/debug/*.apk
+        path: app/build/outputs/apk/release/*.apk
 
     - name: Publish GitHub Release
       if: github.ref == 'refs/heads/main'
@@ -50,8 +67,8 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         gh release delete v1.0.0 --yes || true
-        gh release create v1.0.0 app/build/outputs/apk/debug/*.apk \
-          --title "Focal Android v1.0.0 (Split Architecture)" \
+        gh release create v1.0.0 app/build/outputs/apk/release/*.apk \
+          --title "Focal Android v1.0.0 (Split Architecture Release)" \
           --notes "### Focal Android v1.0.0 Release (Split Architecture)
 
           Optimized split architecture APKs (no bloated universal APK):
