@@ -213,14 +213,14 @@ fun ProfilePickerBottomSheet(
                                     Box(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(6.dp))
-                                            .background(Color(0xFF08834B).copy(alpha = 0.15f))
+                                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
                                             .padding(horizontal = 6.dp, vertical = 2.dp)
                                     ) {
                                         Text(
                                             text = profile.badge,
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.SemiBold,
-                                            color = Color(0xFF006739)
+                                            color = MaterialTheme.colorScheme.primary
                                         )
                                     }
                                 }

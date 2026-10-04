@@ -102,13 +102,13 @@ fun FocalTopBar(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .clip(RoundedCornerShape(10.dp))
-                            .background(Color(0xFF08834B).copy(alpha = 0.15f))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Lock,
                             contentDescription = "Local indicator",
-                            tint = Color(0xFF006739),
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(10.dp)
                         )
                         Spacer(modifier = Modifier.width(3.dp))
@@ -116,7 +116,7 @@ fun FocalTopBar(
                             text = "Local",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF006739)
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
                 }

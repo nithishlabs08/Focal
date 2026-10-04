@@ -247,7 +247,7 @@ fun FocalApp(
                     .testTag("main_stream_action_button"),
                 shape = RoundedCornerShape(27.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (uiState.isStreaming) Color(0xFFBA1A1A) else MaterialTheme.colorScheme.primary
+                    containerColor = if (uiState.isStreaming) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
                 ),
                 elevation = ButtonDefaults.buttonElevation(defaultElevation = 3.dp)
             ) {
@@ -285,14 +285,14 @@ fun FocalApp(
                                 modifier = Modifier
                                     .size(8.dp)
                                     .clip(CircleShape)
-                                    .background(Color(0xFFBA1A1A).copy(alpha = pulseAlpha))
+                                    .background(MaterialTheme.colorScheme.error.copy(alpha = pulseAlpha))
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = "LIVE STREAM ACTIVE",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFFBA1A1A),
+                                color = MaterialTheme.colorScheme.error,
                                 letterSpacing = 1.sp
                             )
                         }
@@ -509,7 +509,7 @@ fun FocalApp(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
                             .background(
-                                if (uiState.isDiscoveryActive) Color(0xFF08834B).copy(alpha = 0.12f)
+                                if (uiState.isDiscoveryActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                                 else MaterialTheme.colorScheme.surfaceContainerHigh
                             )
                             .padding(horizontal = 10.dp, vertical = 6.dp),
@@ -519,7 +519,7 @@ fun FocalApp(
                             modifier = Modifier
                                 .size(7.dp)
                                 .clip(CircleShape)
-                                .background(if (uiState.isDiscoveryActive) Color(0xFF006739) else Color(0xFF08834B))
+                                .background(if (uiState.isDiscoveryActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Column {
@@ -527,7 +527,7 @@ fun FocalApp(
                                 text = if (uiState.isDiscoveryActive) "mDNS Auto-Discovery Active" else "mDNS Auto-Discovery Broadcast",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF006739)
+                                color = if (uiState.isDiscoveryActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
                                 text = "Service: ${uiState.discoveryServiceName ?: "Focal"} • _focal._tcp",

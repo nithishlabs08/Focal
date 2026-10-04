@@ -58,6 +58,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.focal.android.data.model.FlashMode
 import com.focal.android.media.CameraCapturePipeline
+import com.focal.android.ui.theme.LocalSendDarkBackground
 import com.focal.android.server.CameraStreamBroadcaster
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -104,7 +105,7 @@ fun CameraViewfinder(
             .fillMaxWidth()
             .aspectRatio(16f / 9f)
             .clip(RoundedCornerShape(18.dp))
-            .background(Color(0xFF1E2124))
+            .background(LocalSendDarkBackground)
             .testTag("camera_viewfinder_container"),
         contentAlignment = Alignment.Center
     ) {
@@ -165,7 +166,7 @@ fun CameraViewfinder(
                         .align(Alignment.TopStart)
                         .padding(12.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFFBA1A1A).copy(alpha = 0.9f))
+                        .background(MaterialTheme.colorScheme.error.copy(alpha = 0.9f))
                         .padding(horizontal = 10.dp, vertical = 4.dp)
                 ) {
                     Box(
