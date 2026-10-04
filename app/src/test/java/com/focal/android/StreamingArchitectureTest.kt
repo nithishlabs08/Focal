@@ -421,14 +421,14 @@ class StreamingArchitectureTest {
     fun wifiTransport_rejectsUnauthenticatedHttpStreamAccess() {
         val testPort = 18090
         val transport = WifiTransport(port = testPort, pairingPinProvider = { "987654" })
-        var authFailedReported = false
+        val challengeLatch = java.util.concurrent.CountDownLatch(1)
 
         transport.setClientListener(object : TransportClientListener {
             override fun onClientConnected(clientId: String, address: String) {}
             override fun onClientAuthenticated(clientId: String) {}
             override fun onClientDisconnected(clientId: String) {}
             override fun onAuthChallengeFailed(clientId: String) {
-                authFailedReported = true
+                challengeLatch.countDown()
             }
         })
 
@@ -445,8 +445,8 @@ class StreamingArchitectureTest {
             val responseLine = reader.readLine()
             assertNotNull(responseLine)
             assertTrue("Expected 401 Unauthorized but got: $responseLine", responseLine.contains("401 Unauthorized"))
+            assertTrue(challengeLatch.await(5, java.util.concurrent.TimeUnit.SECONDS))
             socket.close()
-            assertTrue(authFailedReported)
         } finally {
             transport.stop()
             assertFalse(transport.isRunning)
@@ -483,12 +483,12 @@ class StreamingArchitectureTest {
     fun wifiTransport_acceptsHeaderPinAuthentication() {
         val testPort = 18092
         val transport = WifiTransport(port = testPort, pairingPinProvider = { "555888" })
-        var authenticatedReported = false
+        val authLatch = java.util.concurrent.CountDownLatch(1)
 
         transport.setClientListener(object : TransportClientListener {
             override fun onClientConnected(clientId: String, address: String) {}
             override fun onClientAuthenticated(clientId: String) {
-                authenticatedReported = true
+                authLatch.countDown()
             }
             override fun onClientDisconnected(clientId: String) {}
             override fun onAuthChallengeFailed(clientId: String) {}
@@ -507,8 +507,8 @@ class StreamingArchitectureTest {
             val responseLine = reader.readLine()
             assertNotNull(responseLine)
             assertTrue("Expected 200 OK but got: $responseLine", responseLine.contains("200 OK"))
+            assertTrue("Authentication callback should fire", authLatch.await(5, java.util.concurrent.TimeUnit.SECONDS))
             socket.close()
-            assertTrue(authenticatedReported)
         } finally {
             transport.stop()
             assertFalse(transport.isRunning)
@@ -519,12 +519,12 @@ class StreamingArchitectureTest {
     fun wifiTransport_acceptsBearerAuthorizationHeader() {
         val testPort = 18093
         val transport = WifiTransport(port = testPort, pairingPinProvider = { "777999" })
-        var authenticatedReported = false
+        val authLatch = java.util.concurrent.CountDownLatch(1)
 
         transport.setClientListener(object : TransportClientListener {
             override fun onClientConnected(clientId: String, address: String) {}
             override fun onClientAuthenticated(clientId: String) {
-                authenticatedReported = true
+                authLatch.countDown()
             }
             override fun onClientDisconnected(clientId: String) {}
             override fun onAuthChallengeFailed(clientId: String) {}
@@ -543,8 +543,8 @@ class StreamingArchitectureTest {
             val responseLine = reader.readLine()
             assertNotNull(responseLine)
             assertTrue("Expected 200 OK but got: $responseLine", responseLine.contains("200 OK"))
+            assertTrue("Authentication callback should fire", authLatch.await(5, java.util.concurrent.TimeUnit.SECONDS))
             socket.close()
-            assertTrue(authenticatedReported)
         } finally {
             transport.stop()
             assertFalse(transport.isRunning)

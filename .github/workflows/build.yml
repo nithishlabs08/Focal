@@ -7,6 +7,9 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -32,5 +35,39 @@ jobs:
     - name: Run Unit Tests
       run: gradle testDebugUnitTest --stacktrace
 
-    - name: Build Debug APK
+    - name: Build Split Architecture Debug APKs
       run: gradle assembleDebug --stacktrace
+
+    - name: List Generated Split APKs
+      run: ls -la app/build/outputs/apk/debug/
+
+    - name: Upload Split Architecture APKs
+      uses: actions/upload-artifact@v4
+      with:
+        name: focal-split-apks
+        path: app/build/outputs/apk/debug/*.apk
+
+    - name: Publish GitHub Release
+      if: github.ref == 'refs/heads/main'
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh release delete v1.0.0 --yes || true
+        gh release create v1.0.0 app/build/outputs/apk/debug/*.apk \
+          --title "Focal Android v1.0.0 (Split Architecture)" \
+          --notes "### Focal Android v1.0.0 Release (Split Architecture)
+
+          Optimized split architecture APKs (no bloated universal APK):
+          - **arm64-v8a**: Modern 64-bit ARM devices (Pixel, Galaxy, OnePlus, etc.)
+          - **armeabi-v7a**: 32-bit ARM devices
+          - **x86_64**: 64-bit Android emulators and x86_64 devices
+          - **x86**: 32-bit Android emulators
+
+          #### Features & Architecture
+          - **Camera Capture Pipeline**: Decoupled from Compose lifecycle; streams continuously in background and starts directly from Quick Settings.
+          - **Stream Readiness**: Service and tile only report active once transport, encoder, and camera start and the first live frame reaches the encoder.
+          - **Camera-to-Encoder Relay**: Canvas relay with proper sensor rotation and aspect-ratio preservation.
+          - **Separate Media Paths**: Strict separation of H.264 Annex-B from JPEG/MJPEG broadcaster.
+          - **Audio Isolation**: 48 kHz mono signed 16-bit PCM; zero microphone access or permission demand in video-only mode.
+          - **Hardened Wi-Fi Pairing**: Short-lived pairing code with header-based authentication ('X-Focal-Pin' or 'Authorization: Bearer'); query parameter authentication disabled.
+          - **Clean Teardown & Recovery**: Total resource release on stop and camera conflict recovery rebind."
