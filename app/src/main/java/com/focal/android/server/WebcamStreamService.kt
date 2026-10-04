@@ -252,7 +252,7 @@ class WebcamStreamService : Service(), LifecycleOwner {
 
             // Register mDNS auto-discovery on local Wi-Fi
             if (connectionMode == HostConnectionMode.WIFI) {
-                FocalDiscoveryManager.registerService(applicationContext, port = 8080, pin = pairingPin)
+                FocalDiscoveryManager.registerService(applicationContext, port = 8080, pin = PairingManager.currentPin)
             }
 
             // 2. Initialize Video Encoder
