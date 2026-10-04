@@ -30,6 +30,7 @@ import com.focal.android.media.DeviceCapabilities
 import com.focal.android.media.RecoveryManager
 import com.focal.android.media.VideoEncoder
 import com.focal.android.media.VideoEncoderListener
+import com.focal.android.transport.FocalDiscoveryManager
 import com.focal.android.transport.PairingManager
 import com.focal.android.transport.TransportManager
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -249,6 +250,11 @@ class WebcamStreamService : Service(), LifecycleOwner {
                 return false
             }
 
+            // Register mDNS auto-discovery on local Wi-Fi
+            if (connectionMode == HostConnectionMode.WIFI) {
+                FocalDiscoveryManager.registerService(applicationContext, port = 8080, pin = pairingPin)
+            }
+
             // 2. Initialize Video Encoder
             val encoderListener = object : VideoEncoderListener {
                 override fun onEncodedNal(codec: StreamCodec, isKeyframe: Boolean, isConfig: Boolean, timestampUs: Long, data: ByteArray) {
@@ -356,6 +362,8 @@ class WebcamStreamService : Service(), LifecycleOwner {
     private fun stopStreaming() {
         _isRunning.value = false
         _isAudioActive.value = false
+
+        FocalDiscoveryManager.unregisterService()
 
         CameraCapturePipeline.unbind()
         CameraCapturePipeline.setEncoderSurface(null)

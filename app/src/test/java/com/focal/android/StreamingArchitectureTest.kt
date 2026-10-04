@@ -17,6 +17,7 @@ import com.focal.android.media.DeviceCapabilities
 import com.focal.android.media.RecoveryManager
 import com.focal.android.server.CameraStreamBroadcaster
 import com.focal.android.server.WebcamStreamService
+import com.focal.android.transport.FocalDiscoveryManager
 import com.focal.android.transport.PacketType
 import com.focal.android.transport.PairingManager
 import com.focal.android.transport.StreamPacket
@@ -549,5 +550,21 @@ class StreamingArchitectureTest {
             transport.stop()
             assertFalse(transport.isRunning)
         }
+    }
+
+    // ==========================================
+    // Priority 8: mDNS Auto-Discovery Tests
+    // ==========================================
+
+    @Test
+    fun focalDiscoveryManager_serviceTypeAndLifecycle() {
+        assertEquals("_focal._tcp.", FocalDiscoveryManager.SERVICE_TYPE)
+        val context = ApplicationProvider.getApplicationContext<Context>()
+
+        // Test registering and unregistering safely
+        FocalDiscoveryManager.registerService(context, port = 8080, pin = "654321")
+        FocalDiscoveryManager.unregisterService()
+        assertFalse(FocalDiscoveryManager.isRegistered)
+        assertNull(FocalDiscoveryManager.registeredServiceName)
     }
 }

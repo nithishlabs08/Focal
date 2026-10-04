@@ -500,6 +500,44 @@ fun FocalApp(
                         )
                     }
                 }
+
+                // mDNS Auto-Discovery Status Badge (when in Wi-Fi mode)
+                if (uiState.connectionMode == HostConnectionMode.WIFI) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                if (uiState.isDiscoveryActive) Color(0xFF08834B).copy(alpha = 0.12f)
+                                else MaterialTheme.colorScheme.surfaceContainerHigh
+                            )
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .clip(CircleShape)
+                                .background(if (uiState.isDiscoveryActive) Color(0xFF006739) else Color(0xFF08834B))
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = if (uiState.isDiscoveryActive) "mDNS Auto-Discovery Active" else "mDNS Auto-Discovery Broadcast",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF006739)
+                            )
+                            Text(
+                                text = "Service: ${uiState.discoveryServiceName ?: "Focal"} • _focal._tcp",
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
             }
 
             // ==========================================

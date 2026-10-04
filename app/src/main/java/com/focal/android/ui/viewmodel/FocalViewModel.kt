@@ -23,6 +23,7 @@ import com.focal.android.media.CameraCapturePipeline
 import com.focal.android.media.DeviceCapabilities
 import com.focal.android.server.CameraStreamBroadcaster
 import com.focal.android.server.WebcamStreamService
+import com.focal.android.transport.FocalDiscoveryManager
 import com.focal.android.transport.PairingManager
 import com.focal.android.util.NetworkUtils
 import kotlinx.coroutines.Job
@@ -71,6 +72,8 @@ data class FocalUiState(
     val dismissedLowBatteryWarning: Boolean = false,
     val isClampedFallback: Boolean = false,
     val clampNotice: String? = null,
+    val isDiscoveryActive: Boolean = false,
+    val discoveryServiceName: String? = null,
     val cameraConflictState: CameraConflictState = CameraConflictState.NORMAL,
     val cameraConflictMessage: String? = null
 )
@@ -81,6 +84,7 @@ class FocalViewModel : ViewModel() {
     val uiState: StateFlow<FocalUiState> = _uiState.asStateFlow()
 
     private var timerJob: Job? = null
+    private var appContext: Context? = null
 
     init {
         val localIp = NetworkUtils.getLocalIpAddress()
@@ -189,6 +193,7 @@ class FocalViewModel : ViewModel() {
     }
 
     fun updateContext(context: Context) {
+        appContext = context.applicationContext
         val realIp = NetworkUtils.getLocalIpAddress(context)
         updateBattery(context)
         val hasCam = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
@@ -197,6 +202,10 @@ class FocalViewModel : ViewModel() {
 
         val detectedCameras = DeviceCapabilities.detectAvailableCameras(context)
         val detectedProfiles = DeviceCapabilities.detectSupportedProfiles()
+
+        if (_uiState.value.connectionMode == HostConnectionMode.WIFI) {
+            FocalDiscoveryManager.registerService(context, port = 8080, pin = PairingManager.currentPin)
+        }
 
         _uiState.update { state ->
             val activeSensor = detectedCameras.find { it.id == state.selectedSensor.id } ?: detectedCameras.firstOrNull() ?: state.selectedSensor
@@ -211,7 +220,9 @@ class FocalViewModel : ViewModel() {
                 selectedSensor = activeSensor,
                 availableProfiles = detectedProfiles,
                 selectedProfile = activeProfile,
-                diagnostics = state.diagnostics.copy(hardwareAccel = hwLabel)
+                diagnostics = state.diagnostics.copy(hardwareAccel = hwLabel),
+                isDiscoveryActive = FocalDiscoveryManager.isRegistered,
+                discoveryServiceName = FocalDiscoveryManager.registeredServiceName
             )
         }
     }
@@ -274,9 +285,16 @@ class FocalViewModel : ViewModel() {
     }
 
     fun setConnectionMode(mode: HostConnectionMode) {
+        if (mode == HostConnectionMode.WIFI) {
+            appContext?.let { FocalDiscoveryManager.registerService(it, port = 8080, pin = PairingManager.currentPin) }
+        } else {
+            FocalDiscoveryManager.unregisterService()
+        }
         _uiState.update {
             it.copy(
                 connectionMode = mode,
+                isDiscoveryActive = if (mode == HostConnectionMode.WIFI) FocalDiscoveryManager.isRegistered else false,
+                discoveryServiceName = if (mode == HostConnectionMode.WIFI) FocalDiscoveryManager.registeredServiceName else null,
                 diagnostics = it.diagnostics.copy(
                     connectionType = if (mode == HostConnectionMode.WIFI) "Wi-Fi (Local Network)" else "USB / ADB Port Forwarding"
                 )
@@ -517,12 +535,22 @@ class FocalViewModel : ViewModel() {
     fun regeneratePairingCode() {
         val newCode = PairingManager.generateNewPin()
         WebcamStreamService.currentPairingPin = newCode
+        if (_uiState.value.connectionMode == HostConnectionMode.WIFI) {
+            appContext?.let { FocalDiscoveryManager.registerService(it, port = 8080, pin = newCode) }
+        }
         _uiState.update {
             it.copy(
                 pairingCode = newCode,
-                streamUrl = if (it.deviceIp.isNotBlank()) "http://${it.deviceIp}:8080/stream.h264" else ""
+                streamUrl = if (it.deviceIp.isNotBlank()) "http://${it.deviceIp}:8080/stream.h264" else "",
+                isDiscoveryActive = FocalDiscoveryManager.isRegistered,
+                discoveryServiceName = FocalDiscoveryManager.registeredServiceName
             )
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        FocalDiscoveryManager.unregisterService()
     }
 
     fun onCameraConflict(reason: String) {
