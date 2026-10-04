@@ -14,7 +14,6 @@ import com.focal.android.data.model.CameraConflictState
 import com.focal.android.data.model.CameraSensor
 import com.focal.android.data.model.FlashMode
 import com.focal.android.data.model.HostConnectionMode
-import com.focal.android.data.model.HostDevice
 import com.focal.android.data.model.MainTab
 import com.focal.android.data.model.OutputProfile
 import com.focal.android.data.model.StreamCodec
@@ -40,17 +39,15 @@ data class FocalUiState(
     val selectedTab: MainTab = MainTab.STREAM,
     val streamMode: StreamMode = StreamMode.VIDEO_ONLY,
     val connectionMode: HostConnectionMode = HostConnectionMode.WIFI,
-    val selectedSensor: CameraSensor = DefaultSensors.first(),
-    val selectedProfile: OutputProfile = DefaultProfiles.first(),
-    val availableSensors: List<CameraSensor> = DefaultSensors,
-    val availableProfiles: List<OutputProfile> = DefaultProfiles,
-    val availableHosts: List<HostDevice> = DefaultHosts,
-    val selectedHost: HostDevice = DefaultHosts.first(),
+    val selectedSensor: CameraSensor = CameraSensor("0", "Back Main Camera", "1080p FHD", "", "", isFront = false, supportsTorch = true),
+    val selectedProfile: OutputProfile = OutputProfile("1080p_30", "1080p • 30 FPS", "1920x1080", 30, 4.8f, "Standard", StreamCodec.H264),
+    val availableSensors: List<CameraSensor> = emptyList(),
+    val availableProfiles: List<OutputProfile> = emptyList(),
     val isStreaming: Boolean = false,
     val streamElapsedSeconds: Long = 0L,
     val isTorchOn: Boolean = false,
     val flashMode: FlashMode = FlashMode.OFF,
-    val showGridOverlay: Boolean = true,
+    val showGridOverlay: Boolean = false,
     val isAudioMuted: Boolean = true,
     val rotationDegrees: Int = 0,
     val exposureCompensation: Float = 0.0f,
@@ -62,14 +59,13 @@ data class FocalUiState(
     val showSecurityModal: Boolean = false,
     val showSensorPicker: Boolean = false,
     val showProfilePicker: Boolean = false,
-    val showHostPicker: Boolean = false,
     val showQuickControls: Boolean = false,
-    val deviceIp: String = "192.168.1.142",
+    val deviceIp: String = "",
     val serverPort: Int = 8080,
     val connectedClientsCount: Int = 0,
-    val streamUrl: String = "http://192.168.1.142:8080/stream.h264",
-    val pairingCode: String = "849207",
-    val batteryPercentage: Int = 82,
+    val streamUrl: String = "",
+    val pairingCode: String = "",
+    val batteryPercentage: Int = -1,
     val isBatteryCharging: Boolean = false,
     val isLowBatteryWarning: Boolean = false,
     val dismissedLowBatteryWarning: Boolean = false,
@@ -77,73 +73,6 @@ data class FocalUiState(
     val clampNotice: String? = null,
     val cameraConflictState: CameraConflictState = CameraConflictState.NORMAL,
     val cameraConflictMessage: String? = null
-)
-
-val DefaultSensors = listOf(
-    CameraSensor(
-        id = "rear_main",
-        name = "Rear Main (4K)",
-        resolutionLabel = "3840 x 2160 (4K)",
-        focalLength = "24mm eq.",
-        aperture = "f/1.8"
-    ),
-    CameraSensor(
-        id = "rear_ultrawide",
-        name = "Ultra Wide (0.5x)",
-        resolutionLabel = "1920 x 1080 (FHD)",
-        focalLength = "13mm eq.",
-        aperture = "f/2.2"
-    ),
-    CameraSensor(
-        id = "rear_telephoto",
-        name = "Telephoto (3x)",
-        resolutionLabel = "3840 x 2160 (4K)",
-        focalLength = "72mm eq.",
-        aperture = "f/2.4"
-    ),
-    CameraSensor(
-        id = "front_selfie",
-        name = "Front Lens (FHD)",
-        resolutionLabel = "1920 x 1080 (FHD)",
-        focalLength = "20mm eq.",
-        aperture = "f/2.0",
-        isFront = true
-    )
-)
-
-val DefaultProfiles = listOf(
-    OutputProfile("1080p_30", "1080p • 30 FPS", "1920x1080", 30, 4.8f, "Recommended Standard", StreamCodec.H264),
-    OutputProfile("1080p_60", "1080p • 60 FPS", "1920x1080", 60, 8.5f, "Fluid Motion", StreamCodec.H264),
-    OutputProfile("720p_30", "720p • 30 FPS", "1280x720", 30, 2.4f, "Low Latency (2.4GHz)", StreamCodec.H264),
-    OutputProfile("720p_60", "720p • 60 FPS", "1280x720", 60, 4.2f, "High Motion", StreamCodec.H264),
-    OutputProfile("4k_30", "4K • 30 FPS (where supported)", "3840x2160", 30, 18.0f, "Studio Rig", StreamCodec.H264)
-)
-
-val DefaultHosts = listOf(
-    HostDevice(
-        id = "host_fedora",
-        name = "Fedora 40 Workstation",
-        ipAddress = "192.168.1.105",
-        os = "Fedora Linux 40 (Silverblue)",
-        bridgeDriver = "PipeWire v4l2loopback",
-        isConnected = true
-    ),
-    HostDevice(
-        id = "host_ubuntu",
-        name = "Ubuntu Studio 24.04",
-        ipAddress = "192.168.1.180",
-        os = "Ubuntu Linux 24.04 LTS",
-        bridgeDriver = "v4l2loopback /dev/video2",
-        isConnected = false
-    ),
-    HostDevice(
-        id = "host_arch",
-        name = "Arch Linux Rig",
-        ipAddress = "192.168.1.210",
-        os = "Arch Linux (Kernel 6.10)",
-        bridgeDriver = "PipeWire camera portal",
-        isConnected = false
-    )
 )
 
 class FocalViewModel : ViewModel() {
@@ -156,11 +85,16 @@ class FocalViewModel : ViewModel() {
     init {
         val localIp = NetworkUtils.getLocalIpAddress()
         val hwLabel = DeviceCapabilities.getHardwareAccelLabel()
+        val initialProfiles = DeviceCapabilities.detectSupportedProfiles()
+        val initialPin = PairingManager.currentPin
+
         _uiState.update {
             it.copy(
                 deviceIp = localIp,
-                streamUrl = "http://$localIp:8080/stream.h264",
-                pairingCode = PairingManager.currentPin,
+                streamUrl = if (localIp.isNotBlank()) "http://$localIp:8080/stream.h264" else "",
+                pairingCode = initialPin,
+                availableProfiles = initialProfiles,
+                selectedProfile = initialProfiles.firstOrNull() ?: it.selectedProfile,
                 diagnostics = it.diagnostics.copy(hardwareAccel = hwLabel)
             )
         }
@@ -236,17 +170,15 @@ class FocalViewModel : ViewModel() {
             }
         }
 
-        // Live stream metrics jitter/update loop
+        // Connection mode status update loop
         viewModelScope.launch {
             while (isActive) {
                 delay(2000)
                 if (_uiState.value.isStreaming) {
                     val current = _uiState.value.diagnostics
-                    val jitterLatency = if (_uiState.value.connectionMode == HostConnectionMode.USB_ADB) (4..7).random() else (8..14).random()
                     _uiState.update { state ->
                         state.copy(
                             diagnostics = current.copy(
-                                latencyMs = jitterLatency,
                                 connectionType = if (state.connectionMode == HostConnectionMode.WIFI) "Wi-Fi (Local Network)" else "USB / ADB Port Forwarding"
                             )
                         )
@@ -263,14 +195,23 @@ class FocalViewModel : ViewModel() {
         val hasMic = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         val hwLabel = DeviceCapabilities.getHardwareAccelLabel()
 
-        _uiState.update {
-            it.copy(
+        val detectedCameras = DeviceCapabilities.detectAvailableCameras(context)
+        val detectedProfiles = DeviceCapabilities.detectSupportedProfiles()
+
+        _uiState.update { state ->
+            val activeSensor = detectedCameras.find { it.id == state.selectedSensor.id } ?: detectedCameras.firstOrNull() ?: state.selectedSensor
+            val activeProfile = detectedProfiles.find { it.id == state.selectedProfile.id } ?: detectedProfiles.firstOrNull() ?: state.selectedProfile
+            state.copy(
                 deviceIp = realIp,
-                streamUrl = "http://$realIp:8080/stream.h264",
+                streamUrl = if (realIp.isNotBlank()) "http://$realIp:8080/stream.h264" else "",
                 pairingCode = PairingManager.currentPin,
                 isCameraPermissionGranted = hasCam,
                 isMicPermissionGranted = hasMic,
-                diagnostics = it.diagnostics.copy(hardwareAccel = hwLabel)
+                availableSensors = detectedCameras,
+                selectedSensor = activeSensor,
+                availableProfiles = detectedProfiles,
+                selectedProfile = activeProfile,
+                diagnostics = state.diagnostics.copy(hardwareAccel = hwLabel)
             )
         }
     }
@@ -299,14 +240,13 @@ class FocalViewModel : ViewModel() {
         }
     }
 
-    fun setSimulatedBattery(pct: Int, isCharging: Boolean = false) {
+    fun updateBatteryState(pct: Int, isCharging: Boolean) {
         _uiState.update {
             it.copy(
                 batteryPercentage = pct,
                 isBatteryCharging = isCharging,
                 isLowBatteryWarning = pct < 20 && !isCharging,
-                diagnostics = it.diagnostics.copy(batteryPct = pct),
-                dismissedLowBatteryWarning = false
+                diagnostics = it.diagnostics.copy(batteryPct = pct)
             )
         }
     }
@@ -376,85 +316,28 @@ class FocalViewModel : ViewModel() {
     }
 
     fun setStreamResolution(resolutionLabel: String) {
-        _uiState.update { state ->
-            val currentFps = state.selectedProfile.fps
-            val targetW = when (resolutionLabel) {
-                "720p" -> 1280
-                "4K" -> 3840
-                else -> 1920
+        val target = _uiState.value.availableProfiles.find { it.name.contains(resolutionLabel, ignoreCase = true) }
+            ?: when {
+                resolutionLabel.contains("720p", ignoreCase = true) -> OutputProfile("720p_30", "720p HD • 30 FPS", "1280x720", 30, 2.4f, "Low Latency")
+                resolutionLabel.contains("4K", ignoreCase = true) -> OutputProfile("4k_30", "4K Ultra HD • 30 FPS", "3840x2160", 30, 18.0f, "Studio")
+                else -> OutputProfile("1080p_30", "1080p Full HD • 30 FPS", "1920x1080", 30, 4.8f, "Standard")
             }
-            val targetH = when (resolutionLabel) {
-                "720p" -> 720
-                "4K" -> 2160
-                else -> 1080
-            }
-
-            val clamped = DeviceCapabilities.clampConfiguration(targetW, targetH, currentFps)
-
-            val updatedProfile = state.selectedProfile.copy(
-                resolution = "${clamped.width}x${clamped.height}",
-                fps = clamped.fps,
-                name = "$resolutionLabel @ ${clamped.fps} FPS",
-                bitrateMbps = clamped.bitrateMbps
-            )
-
-            state.copy(
-                selectedProfile = updatedProfile,
-                isClampedFallback = clamped.isClamped,
-                clampNotice = clamped.explanation,
-                diagnostics = state.diagnostics.copy(
-                    bitrateMbps = clamped.bitrateMbps,
-                    fps = clamped.fps.toFloat(),
-                    isClampedFallback = clamped.isClamped,
-                    clampNotice = clamped.explanation
-                )
-            )
-        }
+        selectProfile(target)
     }
 
     fun setStreamFps(fps: Int) {
-        _uiState.update { state ->
-            val currentRes = when {
-                state.selectedProfile.name.contains("720p", ignoreCase = true) -> "720p"
-                state.selectedProfile.name.contains("4K", ignoreCase = true) -> "4K"
-                else -> "1080p"
-            }
-            val targetW = if (currentRes == "720p") 1280 else if (currentRes == "4K") 3840 else 1920
-            val targetH = if (currentRes == "720p") 720 else if (currentRes == "4K") 2160 else 1080
-
-            val clamped = DeviceCapabilities.clampConfiguration(targetW, targetH, fps)
-
-            val updatedProfile = state.selectedProfile.copy(
-                resolution = "${clamped.width}x${clamped.height}",
-                fps = clamped.fps,
-                name = "$currentRes @ ${clamped.fps} FPS",
-                bitrateMbps = clamped.bitrateMbps
-            )
-
-            state.copy(
-                selectedProfile = updatedProfile,
-                isClampedFallback = clamped.isClamped,
-                clampNotice = clamped.explanation,
-                diagnostics = state.diagnostics.copy(
-                    fps = clamped.fps.toFloat(),
-                    bitrateMbps = clamped.bitrateMbps,
-                    isClampedFallback = clamped.isClamped,
-                    clampNotice = clamped.explanation
-                )
-            )
-        }
-    }
-
-    fun selectHost(host: HostDevice) {
-        _uiState.update { it.copy(selectedHost = host, showHostPicker = false) }
+        val current = _uiState.value.selectedProfile
+        val target = _uiState.value.availableProfiles.find { it.fps == fps }
+            ?: current.copy(fps = fps)
+        selectProfile(target)
     }
 
     fun flipCamera() {
         _uiState.update { state ->
             val nextSensor = if (state.selectedSensor.isFront) {
-                state.availableSensors.first { !it.isFront }
+                state.availableSensors.firstOrNull { !it.isFront } ?: state.selectedSensor.copy(isFront = false, name = "Back Main Camera")
             } else {
-                state.availableSensors.first { it.isFront }
+                state.availableSensors.firstOrNull { it.isFront } ?: state.selectedSensor.copy(isFront = true, name = "Front Camera")
             }
             state.copy(selectedSensor = nextSensor)
         }
@@ -627,10 +510,6 @@ class FocalViewModel : ViewModel() {
         _uiState.update { it.copy(showProfilePicker = show) }
     }
 
-    fun setShowHostPicker(show: Boolean) {
-        _uiState.update { it.copy(showHostPicker = show) }
-    }
-
     fun setShowQuickControls(show: Boolean) {
         _uiState.update { it.copy(showQuickControls = show) }
     }
@@ -641,7 +520,7 @@ class FocalViewModel : ViewModel() {
         _uiState.update {
             it.copy(
                 pairingCode = newCode,
-                streamUrl = "http://${it.deviceIp}:8080/stream.h264"
+                streamUrl = if (it.deviceIp.isNotBlank()) "http://${it.deviceIp}:8080/stream.h264" else ""
             )
         }
     }

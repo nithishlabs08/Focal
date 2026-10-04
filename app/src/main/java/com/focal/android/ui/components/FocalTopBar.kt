@@ -10,14 +10,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -31,25 +31,21 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
-
-const val FOCAL_LOGO_URL = "https://lh3.googleusercontent.com/aida/AEtjO1VtxFMYB699AHQL-9Vh5aamQXsPggKN0306IQcp9kHzQuk1hd-zmkzvYlIgydn96wT6mj8MRvLDXcWW6W8T-Lzp_GOHi5Anf9zIT4lY3kpuWURhGLDyc-E_HTvOz5EV6rzbuRm0bOp4LQJd__BY9wUfw17HSKe-idOpG-zqRQNlEzuYL0gKD5QQjg8l2iWKAjj5ZanZBOWP7oO42Ockqy8QWh5IiYoW77ez7t8A2FrdTK8K5vre_zOzL3mt"
 
 @Composable
 fun FocalTopBar(
     title: String = "Focal",
-    subtitle: String = "Stream Ready",
+    subtitle: String = "Webcam",
     showBack: Boolean = false,
     onBackClick: () -> Unit = {},
-    showControls: Boolean = true,
-    onControlsClick: () -> Unit = {},
-    onProfileClick: () -> Unit = {},
+    deviceIp: String = "",
     modifier: Modifier = Modifier
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(64.dp)
+            .statusBarsPadding()
+            .height(56.dp)
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
@@ -62,7 +58,7 @@ fun FocalTopBar(
                 IconButton(
                     onClick = onBackClick,
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(36.dp)
                         .testTag("top_bar_back_button")
                 ) {
                     Icon(
@@ -74,14 +70,21 @@ fun FocalTopBar(
                 Spacer(modifier = Modifier.width(4.dp))
             }
 
-            // App Logo
-            AsyncImage(
-                model = FOCAL_LOGO_URL,
-                contentDescription = "Focal Logo",
+            // Native Vector App Icon
+            Box(
                 modifier = Modifier
                     .size(34.dp)
                     .clip(CircleShape)
-            )
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Videocam,
+                    contentDescription = "Focal Logo",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
 
             Spacer(modifier = Modifier.width(10.dp))
 
@@ -90,7 +93,7 @@ fun FocalTopBar(
                     Text(
                         text = title,
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.width(6.dp))
@@ -98,7 +101,7 @@ fun FocalTopBar(
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(10.dp))
                             .background(Color(0xFF08834B).copy(alpha = 0.15f))
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
@@ -106,13 +109,13 @@ fun FocalTopBar(
                             imageVector = Icons.Default.Lock,
                             contentDescription = "Local indicator",
                             tint = Color(0xFF006739),
-                            modifier = Modifier.size(11.dp)
+                            modifier = Modifier.size(10.dp)
                         )
                         Spacer(modifier = Modifier.width(3.dp))
                         Text(
-                            text = "100% Local",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
+                            text = "Local",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
                             color = Color(0xFF006739)
                         )
                     }
@@ -120,49 +123,24 @@ fun FocalTopBar(
 
                 Text(
                     text = subtitle,
-                    fontSize = 12.sp,
+                    fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
 
-        // Right Action Buttons
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (showControls) {
-                IconButton(
-                    onClick = onControlsClick,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .testTag("top_bar_quick_controls_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Tune,
-                        contentDescription = "Quick Controls",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Spacer(modifier = Modifier.width(4.dp))
-            }
-
-            Box(
+        // Right IP badge if available
+        if (deviceIp.isNotBlank()) {
+            Text(
+                text = deviceIp,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
-                    .size(34.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary),
-                contentAlignment = Alignment.Center
-            ) {
-                IconButton(
-                    onClick = onProfileClick,
-                    modifier = Modifier.size(34.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Person,
-                        contentDescription = "User Profile",
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            )
         }
     }
 }

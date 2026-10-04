@@ -40,6 +40,8 @@ import com.focal.android.ui.theme.FocalOnSecondaryFixed
 import com.focal.android.ui.theme.FocalPrimaryFixed
 import com.focal.android.ui.theme.FocalSecondaryFixed
 
+import androidx.compose.foundation.layout.navigationBarsPadding
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SensorPickerBottomSheet(
@@ -57,15 +59,16 @@ fun SensorPickerBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .navigationBarsPadding()
                 .padding(horizontal = 20.dp, vertical = 8.dp)
-                .padding(bottom = 32.dp)
+                .padding(bottom = 24.dp)
         ) {
             Text(
                 text = "Select Camera Lens",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(bottom = 16.dp)
+                modifier = Modifier.padding(bottom = 14.dp)
             )
 
             sensors.forEach { sensor ->
@@ -73,21 +76,24 @@ fun SensorPickerBottomSheet(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(14.dp))
                         .background(
                             if (isSelected) MaterialTheme.colorScheme.secondaryContainer
                             else MaterialTheme.colorScheme.surfaceContainerLow
                         )
                         .clickable { onSensorSelected(sensor) }
-                        .padding(16.dp)
+                        .padding(horizontal = 14.dp, vertical = 12.dp)
                         .testTag("sensor_option_${sensor.id}"),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Box(
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(38.dp)
                                 .clip(CircleShape)
                                 .background(FocalPrimaryFixed),
                             contentAlignment = Alignment.Center
@@ -147,15 +153,16 @@ fun ProfilePickerBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .navigationBarsPadding()
                 .padding(horizontal = 20.dp, vertical = 8.dp)
-                .padding(bottom = 32.dp)
+                .padding(bottom = 24.dp)
         ) {
             Text(
                 text = "Stream Output Profile",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(bottom = 16.dp)
+                modifier = Modifier.padding(bottom = 14.dp)
             )
 
             profiles.forEach { profile ->
@@ -163,21 +170,24 @@ fun ProfilePickerBottomSheet(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(14.dp))
                         .background(
                             if (isSelected) MaterialTheme.colorScheme.secondaryContainer
                             else MaterialTheme.colorScheme.surfaceContainerLow
                         )
                         .clickable { onProfileSelected(profile) }
-                        .padding(16.dp)
+                        .padding(horizontal = 14.dp, vertical = 12.dp)
                         .testTag("profile_option_${profile.id}"),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Box(
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(38.dp)
                                 .clip(CircleShape)
                                 .background(MaterialTheme.colorScheme.secondaryContainer),
                             contentAlignment = Alignment.Center
@@ -216,7 +226,7 @@ fun ProfilePickerBottomSheet(
                                 }
                             }
                             Text(
-                                text = "${profile.resolution} • ${profile.bitrateMbps} Mbps target bitrate",
+                                text = "${profile.resolution} • ${profile.bitrateMbps} Mbps target",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

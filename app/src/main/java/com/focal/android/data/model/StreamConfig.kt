@@ -58,24 +58,14 @@ enum class CameraConflictState {
     RECOVERING
 }
 
-data class HostDevice(
-    val id: String,
-    val name: String,
-    val ipAddress: String,
-    val os: String,
-    val bridgeDriver: String,
-    val isConnected: Boolean
-)
-
 data class StreamDiagnostics(
-    val latencyMs: Int = 12,
-    val fps: Float = 30.0f,
+    val latencyMs: Int = 0,
+    val fps: Float = 0.0f,
     val bitrateMbps: Float = 4.8f,
     val codec: String = "Hardware H.264",
     val hardwareAccel: String = "MediaCodec HW",
     val isAudioActive: Boolean = false,
-    val batteryPct: Int = 82,
-    val temperatureC: Int = 34,
+    val batteryPct: Int = -1,
     val droppedFrames: Int = 0,
     val connectionType: String = "Wi-Fi (Local Network)",
     val isClampedFallback: Boolean = false,

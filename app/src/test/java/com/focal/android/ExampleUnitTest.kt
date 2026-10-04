@@ -69,13 +69,13 @@ class ExampleUnitTest {
     @Test
     fun gridToggle_switchesState() {
         val viewModel = FocalViewModel()
-        assertTrue(viewModel.uiState.value.showGridOverlay)
-
-        viewModel.toggleGridOverlay()
         assertFalse(viewModel.uiState.value.showGridOverlay)
 
         viewModel.toggleGridOverlay()
         assertTrue(viewModel.uiState.value.showGridOverlay)
+
+        viewModel.toggleGridOverlay()
+        assertFalse(viewModel.uiState.value.showGridOverlay)
     }
 
     @Test
@@ -92,12 +92,12 @@ class ExampleUnitTest {
     @Test
     fun batteryStatus_warnsOnLowPowerWhenNotCharging() {
         val viewModel = FocalViewModel()
-        viewModel.setSimulatedBattery(14, isCharging = false)
+        viewModel.updateBatteryState(14, isCharging = false)
         assertEquals(14, viewModel.uiState.value.batteryPercentage)
         assertTrue(viewModel.uiState.value.isLowBatteryWarning)
 
         // Reset to normal level
-        viewModel.setSimulatedBattery(80, isCharging = false)
+        viewModel.updateBatteryState(80, isCharging = false)
         assertEquals(80, viewModel.uiState.value.batteryPercentage)
         assertFalse(viewModel.uiState.value.isLowBatteryWarning)
     }
@@ -105,7 +105,7 @@ class ExampleUnitTest {
     @Test
     fun batteryStatus_noWarningWhenChargingEvenIfLow() {
         val viewModel = FocalViewModel()
-        viewModel.setSimulatedBattery(12, isCharging = true)
+        viewModel.updateBatteryState(12, isCharging = true)
         assertEquals(12, viewModel.uiState.value.batteryPercentage)
         assertTrue(viewModel.uiState.value.isBatteryCharging)
         assertFalse(viewModel.uiState.value.isLowBatteryWarning)

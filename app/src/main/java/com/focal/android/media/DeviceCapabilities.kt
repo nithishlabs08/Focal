@@ -1,9 +1,16 @@
 package com.focal.android.media
 
+import android.content.Context
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.os.Build
+import android.view.SurfaceHolder
+import com.focal.android.data.model.CameraSensor
+import com.focal.android.data.model.OutputProfile
+import com.focal.android.data.model.StreamCodec
 
 data class ClampedConfig(
     val width: Int,
@@ -225,5 +232,141 @@ object DeviceCapabilities {
             width >= 1920 || height >= 1080 -> if (fps >= 60) 8.5f else 4.8f
             else -> if (fps >= 60) 4.2f else 2.4f
         }
+    }
+
+    /**
+     * Auto-detects real physical camera sensors available on the installed device.
+     */
+    fun detectAvailableCameras(context: Context): List<CameraSensor> {
+        val result = mutableListOf<CameraSensor>()
+        try {
+            val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
+            if (cameraManager != null) {
+                for (id in cameraManager.cameraIdList) {
+                    val chars = cameraManager.getCameraCharacteristics(id)
+                    val facing = chars.get(CameraCharacteristics.LENS_FACING)
+                    val isFront = facing == CameraCharacteristics.LENS_FACING_FRONT
+                    val hasFlash = chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) ?: false
+
+                    val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+                    val sizes = map?.getOutputSizes(SurfaceHolder::class.java) ?: emptyArray()
+                    val maxW = sizes.maxOfOrNull { it.width } ?: 1920
+                    val maxH = sizes.maxOfOrNull { it.height } ?: 1080
+                    val resLabel = if (maxW >= 3840 || maxH >= 2160) "4K UHD" else if (maxW >= 1920 || maxH >= 1080) "1080p FHD" else "720p HD"
+
+                    val name = if (isFront) "Front Camera" else if (id == "0") "Back Main Camera" else "Back Camera ($id)"
+                    result.add(
+                        CameraSensor(
+                            id = id,
+                            name = name,
+                            resolutionLabel = resLabel,
+                            focalLength = "",
+                            aperture = "",
+                            isFront = isFront,
+                            supportsTorch = hasFlash
+                        )
+                    )
+                }
+            }
+        } catch (_: Throwable) {
+        }
+        if (result.isEmpty()) {
+            result.add(CameraSensor("0", "Back Camera", "1080p FHD", "", "", isFront = false, supportsTorch = true))
+            result.add(CameraSensor("1", "Front Camera", "1080p FHD", "", "", isFront = true, supportsTorch = false))
+        }
+        return result
+    }
+
+    /**
+     * Auto-detects supported output profiles by cross-referencing camera and MediaCodec capabilities.
+     */
+    fun detectSupportedProfiles(): List<OutputProfile> {
+        val profiles = mutableListOf<OutputProfile>()
+
+        // 1. 4K 30 FPS (if hardware encoder supports 3840x2160)
+        if (isResolutionSupported(3840, 2160)) {
+            val clamped = clampConfiguration(3840, 2160, 30)
+            if (!clamped.isClamped || (clamped.width == 3840 && clamped.height == 2160)) {
+                profiles.add(
+                    OutputProfile(
+                        id = "4k_30",
+                        name = "4K • 30 FPS",
+                        resolution = "3840x2160",
+                        fps = 30,
+                        bitrateMbps = clamped.bitrateMbps,
+                        badge = "Ultra HD",
+                        codec = StreamCodec.H264
+                    )
+                )
+            }
+        }
+
+        // 2. 1080p 60 FPS (if 60fps is supported at 1080p)
+        if (isResolutionSupported(1920, 1080) && isFpsSupported(1920, 1080, 60)) {
+            val clamped = clampConfiguration(1920, 1080, 60)
+            if (clamped.fps >= 60) {
+                profiles.add(
+                    OutputProfile(
+                        id = "1080p_60",
+                        name = "1080p • 60 FPS",
+                        resolution = "1920x1080",
+                        fps = 60,
+                        bitrateMbps = clamped.bitrateMbps,
+                        badge = "Fluid 60",
+                        codec = StreamCodec.H264
+                    )
+                )
+            }
+        }
+
+        // 3. 1080p 30 FPS (Standard)
+        if (isResolutionSupported(1920, 1080)) {
+            val clamped = clampConfiguration(1920, 1080, 30)
+            profiles.add(
+                OutputProfile(
+                    id = "1080p_30",
+                    name = "1080p • 30 FPS",
+                    resolution = "1920x1080",
+                    fps = clamped.fps,
+                    bitrateMbps = clamped.bitrateMbps,
+                    badge = "Standard",
+                    codec = StreamCodec.H264
+                )
+            )
+        }
+
+        // 4. 720p 60 FPS (if 60fps is supported at 720p)
+        if (isResolutionSupported(1280, 720) && isFpsSupported(1280, 720, 60)) {
+            val clamped = clampConfiguration(1280, 720, 60)
+            if (clamped.fps >= 60) {
+                profiles.add(
+                    OutputProfile(
+                        id = "720p_60",
+                        name = "720p • 60 FPS",
+                        resolution = "1280x720",
+                        fps = 60,
+                        bitrateMbps = clamped.bitrateMbps,
+                        badge = "Fluid HD",
+                        codec = StreamCodec.H264
+                    )
+                )
+            }
+        }
+
+        // 5. 720p 30 FPS (Always available baseline)
+        val clamped720p = clampConfiguration(1280, 720, 30)
+        profiles.add(
+            OutputProfile(
+                id = "720p_30",
+                name = "720p • 30 FPS",
+                resolution = "1280x720",
+                fps = clamped720p.fps,
+                bitrateMbps = clamped720p.bitrateMbps,
+                badge = "Low Bandwidth",
+                codec = StreamCodec.H264
+            )
+        )
+
+        return profiles
     }
 }
