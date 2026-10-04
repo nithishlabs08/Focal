@@ -1,16 +1,18 @@
 package com.example.server
 
-import android.app.Notification
+import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.example.MainActivity
 import com.example.R
 import com.example.data.model.CameraConflictState
@@ -20,6 +22,7 @@ import com.example.data.model.StreamCodec
 import com.example.data.model.StreamMode
 import com.example.media.AudioCaptureListener
 import com.example.media.AudioController
+import com.example.media.CameraCapturePipeline
 import com.example.media.DeviceCapabilities
 import com.example.media.RecoveryManager
 import com.example.media.VideoEncoder
@@ -141,80 +144,139 @@ class WebcamStreamService : Service() {
         // Clamped configuration against hardware encoder
         val clamped = DeviceCapabilities.clampConfiguration(rawWidth, rawHeight, rawFps)
 
-        startForegroundWithNotification(clamped.width, clamped.height, clamped.fps, connectionMode)
-        initAndStartPipeline(pairingPin, connectionMode, streamMode, clamped.width, clamped.height, clamped.fps, clamped.bitrateMbps)
+        // Avoid leaking resources on repeated starts by stopping existing session first
+        if (_isRunning.value) {
+            stopStreaming()
+        }
 
-        _isRunning.value = true
-        return START_STICKY
+        // Check microphone permission before audio capture
+        val hasMicPermission = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+
+        val audioEnabled = streamMode == StreamMode.VIDEO_AND_AUDIO && hasMicPermission
+
+        startForegroundWithNotification(clamped.width, clamped.height, clamped.fps, connectionMode, audioEnabled)
+
+        val startedSuccessfully = initAndStartPipeline(
+            pairingPin = pairingPin,
+            connectionMode = connectionMode,
+            streamMode = streamMode,
+            hasMicPermission = hasMicPermission,
+            width = clamped.width,
+            height = clamped.height,
+            fps = clamped.fps,
+            bitrateMbps = clamped.bitrateMbps
+        )
+
+        if (startedSuccessfully) {
+            _isRunning.value = true
+            return START_STICKY
+        } else {
+            _isRunning.value = false
+            stopStreaming()
+            stopSelf()
+            return START_NOT_STICKY
+        }
     }
 
     private fun initAndStartPipeline(
         pairingPin: String,
         connectionMode: HostConnectionMode,
         streamMode: StreamMode,
+        hasMicPermission: Boolean,
         width: Int,
         height: Int,
         fps: Int,
         bitrateMbps: Float
-    ) {
-        // 1. Initialize Transport Manager
-        val tm = TransportManager(pairingPinProvider = { currentPairingPin })
-        transportManager = tm
-        tm.start(connectionMode)
+    ): Boolean {
+        try {
+            // 1. Initialize Transport Manager
+            val tm = TransportManager(pairingPinProvider = { currentPairingPin })
+            transportManager = tm
+            tm.start(connectionMode)
 
-        // 2. Initialize Video Encoder
-        val encoderListener = object : VideoEncoderListener {
-            override fun onEncodedNal(codec: StreamCodec, isKeyframe: Boolean, timestampUs: Long, data: ByteArray) {
-                transportManager?.broadcastVideoNal(codec, isKeyframe, timestampUs, data)
-                // Also mirror to legacy broadcaster for UI viewfinder preview
-                CameraStreamBroadcaster.pushFrame(data)
+            if (!tm.isAnyRunning()) {
+                return false
             }
 
-            override fun onEncoderError(throwable: Throwable) {
-                recoveryManager?.onEncoderFailure(throwable)
-            }
-        }
-
-        videoEncoder = VideoEncoder(
-            width = width,
-            height = height,
-            fps = fps,
-            bitrateMbps = bitrateMbps,
-            listener = encoderListener
-        ).apply {
-            start()
-        }
-
-        // 3. Initialize Audio Controller (ONLY if streamMode == VIDEO_AND_AUDIO)
-        val audioListener = object : AudioCaptureListener {
-            override fun onAudioData(pcmBytes: ByteArray, timestampUs: Long) {
-                transportManager?.broadcastAudio(pcmBytes, timestampUs)
-            }
-        }
-        audioController = AudioController(audioListener)
-        if (streamMode == StreamMode.VIDEO_AND_AUDIO) {
-            audioController?.startRecording(hasPermission = true, streamMode = streamMode)
-        }
-
-        // 4. Initialize Recovery Manager
-        recoveryManager = RecoveryManager(
-            onRetryCamera = {
-                // Retry binding camera surface to encoder
-                true
-            },
-            onReinitEncoder = {
-                videoEncoder?.stop()
-                val safeConfig = DeviceCapabilities.clampConfiguration(1280, 720, 30)
-                videoEncoder = VideoEncoder(safeConfig.width, safeConfig.height, safeConfig.fps, safeConfig.bitrateMbps, encoderListener).apply {
-                    start()
+            // 2. Initialize Video Encoder
+            val encoderListener = object : VideoEncoderListener {
+                override fun onEncodedNal(codec: StreamCodec, isKeyframe: Boolean, isConfig: Boolean, timestampUs: Long, data: ByteArray) {
+                    transportManager?.broadcastVideoNal(codec, isKeyframe, isConfig, timestampUs, data)
                 }
-                true
+
+                override fun onEncoderError(throwable: Throwable) {
+                    recoveryManager?.onEncoderFailure(throwable)
+                }
             }
-        )
+
+            val encoder = VideoEncoder(
+                width = width,
+                height = height,
+                fps = fps,
+                bitrateMbps = bitrateMbps,
+                listener = encoderListener
+            )
+            videoEncoder = encoder
+            val encoderStarted = encoder.start()
+            if (!encoderStarted) {
+                return false
+            }
+
+            // Connect camera capture pipeline to the H.264 encoder's input Surface
+            CameraCapturePipeline.setEncoderSurface(encoder.inputSurface, width, height)
+
+            // 3. Initialize Audio Controller (ONLY if streamMode == VIDEO_AND_AUDIO and permission is granted)
+            val audioListener = object : AudioCaptureListener {
+                override fun onAudioData(pcmBytes: ByteArray, timestampUs: Long) {
+                    transportManager?.broadcastAudio(pcmBytes, timestampUs)
+                }
+            }
+            audioController = AudioController(audioListener)
+            if (streamMode == StreamMode.VIDEO_AND_AUDIO && hasMicPermission) {
+                audioController?.startRecording(hasPermission = true, streamMode = streamMode)
+            }
+
+            // 4. Initialize Recovery Manager
+            recoveryManager = RecoveryManager(
+                onRetryCamera = {
+                    // Retry binding camera surface to encoder
+                    CameraCapturePipeline.rebind(applicationContext)
+                },
+                onReinitEncoder = {
+                    videoEncoder?.stop()
+                    val safeConfig = DeviceCapabilities.clampConfiguration(1280, 720, 30)
+                    val fallbackEncoder = VideoEncoder(
+                        safeConfig.width,
+                        safeConfig.height,
+                        safeConfig.fps,
+                        safeConfig.bitrateMbps,
+                        encoderListener
+                    )
+                    val started = fallbackEncoder.start()
+                    if (started) {
+                        videoEncoder = fallbackEncoder
+                        CameraCapturePipeline.setEncoderSurface(fallbackEncoder.inputSurface, safeConfig.width, safeConfig.height)
+                        CameraCapturePipeline.rebind(applicationContext)
+                        true
+                    } else {
+                        false
+                    }
+                }
+            )
+
+            return true
+        } catch (_: Throwable) {
+            return false
+        }
     }
 
     private fun stopStreaming() {
         _isRunning.value = false
+        CameraCapturePipeline.setEncoderSurface(null)
+
         audioController?.stopRecording()
         audioController = null
 
@@ -230,6 +292,12 @@ class WebcamStreamService : Service() {
 
     override fun onDestroy() {
         stopStreaming()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+        }
         super.onDestroy()
     }
 
@@ -254,7 +322,8 @@ class WebcamStreamService : Service() {
         width: Int,
         height: Int,
         fps: Int,
-        mode: HostConnectionMode
+        mode: HostConnectionMode,
+        audioEnabled: Boolean
     ) {
         val launchIntent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
@@ -284,9 +353,14 @@ class WebcamStreamService : Service() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+            if (audioEnabled) {
+                type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            }
             startForeground(NOTIFICATION_ID, notification, type)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA)
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }

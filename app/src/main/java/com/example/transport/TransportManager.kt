@@ -70,9 +70,12 @@ class TransportManager(
         _connectedClientsCount.value = 0
     }
 
+    fun isAnyRunning(): Boolean = wifiTransport.isRunning || adbTransport.isRunning
+
     fun broadcastVideoNal(
         codec: StreamCodec,
         isKeyframe: Boolean,
+        isConfig: Boolean = false,
         timestampUs: Long,
         nalBytes: ByteArray
     ) {
@@ -80,10 +83,20 @@ class TransportManager(
             codec = codec,
             type = PacketType.VIDEO_NAL,
             isKeyframe = isKeyframe,
+            isConfig = isConfig,
             timestampUs = timestampUs,
             payload = nalBytes
         )
         broadcast(packet)
+    }
+
+    fun broadcastVideoNal(
+        codec: StreamCodec,
+        isKeyframe: Boolean,
+        timestampUs: Long,
+        nalBytes: ByteArray
+    ) {
+        broadcastVideoNal(codec, isKeyframe, false, timestampUs, nalBytes)
     }
 
     fun broadcastAudio(
@@ -91,9 +104,10 @@ class TransportManager(
         timestampUs: Long
     ) {
         val packet = StreamPacket(
-            codec = StreamCodec.H264, // container flag
+            codec = StreamCodec.PCM,
             type = PacketType.AUDIO_RAW,
             isKeyframe = false,
+            isConfig = false,
             timestampUs = timestampUs,
             payload = pcmOrAacBytes
         )

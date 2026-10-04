@@ -153,10 +153,13 @@ class FocalViewModel : ViewModel() {
 
     init {
         val localIp = NetworkUtils.getLocalIpAddress()
+        val initialPin = _uiState.value.pairingCode
+        val hwLabel = DeviceCapabilities.getHardwareAccelLabel()
         _uiState.update {
             it.copy(
                 deviceIp = localIp,
-                streamUrl = "http://$localIp:8080/stream.h264"
+                streamUrl = "http://$localIp:8080/stream.h264?pin=$initialPin",
+                diagnostics = it.diagnostics.copy(hardwareAccel = hwLabel)
             )
         }
 
@@ -229,13 +232,15 @@ class FocalViewModel : ViewModel() {
         updateBattery(context)
         val hasCam = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
         val hasMic = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        val hwLabel = DeviceCapabilities.getHardwareAccelLabel()
 
         _uiState.update {
             it.copy(
                 deviceIp = realIp,
-                streamUrl = "http://$realIp:8080/stream.h264",
+                streamUrl = "http://$realIp:8080/stream.h264?pin=${it.pairingCode}",
                 isCameraPermissionGranted = hasCam,
-                isMicPermissionGranted = hasMic
+                isMicPermissionGranted = hasMic,
+                diagnostics = it.diagnostics.copy(hardwareAccel = hwLabel)
             )
         }
     }
@@ -602,7 +607,12 @@ class FocalViewModel : ViewModel() {
     fun regeneratePairingCode() {
         val newCode = (100000..999999).random().toString()
         WebcamStreamService.currentPairingPin = newCode
-        _uiState.update { it.copy(pairingCode = newCode) }
+        _uiState.update {
+            it.copy(
+                pairingCode = newCode,
+                streamUrl = "http://${it.deviceIp}:8080/stream.h264?pin=$newCode"
+            )
+        }
     }
 
     fun onCameraConflict(reason: String) {

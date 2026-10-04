@@ -177,18 +177,58 @@ class WifiTransport(
                 return
             }
 
-            // Case B: HTTP Request (stream.h264, stream.mjpg fallback, status)
+            // Case B: HTTP Request (stream.h264, status, etc.)
             val parts = initialLine.split(" ")
             if (parts.size >= 2) {
-                val path = parts[1]
-                // Drain remaining HTTP headers
-                var header = reader.readLine()
-                while (!header.isNullOrEmpty()) {
-                    header = reader.readLine()
+                val fullPath = parts[1]
+                val path = fullPath.substringBefore("?")
+                val queryString = if (fullPath.contains("?")) fullPath.substringAfter("?") else ""
+
+                // Read all HTTP headers
+                val headers = mutableMapOf<String, String>()
+                var headerLine = reader.readLine()
+                while (!headerLine.isNullOrEmpty()) {
+                    val colonIdx = headerLine.indexOf(':')
+                    if (colonIdx > 0) {
+                        val k = headerLine.substring(0, colonIdx).trim().lowercase()
+                        val v = headerLine.substring(colonIdx + 1).trim()
+                        headers[k] = v
+                    }
+                    headerLine = reader.readLine()
                 }
+
+                val expectedPin = pairingPinProvider()
+
+                // Extract PIN from query params (?pin=... or ?auth=...), X-Focal-Pin header, or Authorization header
+                val queryParams = queryString.split("&").associate { param ->
+                    val eqIdx = param.indexOf('=')
+                    if (eqIdx > 0) {
+                        param.substring(0, eqIdx) to param.substring(eqIdx + 1)
+                    } else {
+                        param to ""
+                    }
+                }
+                val queryPin = queryParams["pin"] ?: queryParams["auth"]
+                val headerPin = headers["x-focal-pin"] ?: headers["authorization"]?.removePrefix("Bearer ")?.trim()
+                val candidatePin = queryPin ?: headerPin
+                val isAuthenticated = !candidatePin.isNullOrBlank() && candidatePin == expectedPin
 
                 when {
                     path == "/stream.h264" || path == "/video.h264" || path == "/live" -> {
+                        if (!isAuthenticated) {
+                            val unauthorized = "HTTP/1.1 401 Unauthorized\r\n" +
+                                    "Content-Type: text/plain; charset=utf-8\r\n" +
+                                    "WWW-Authenticate: Bearer realm=\"Focal Webcam\"\r\n" +
+                                    "Connection: close\r\n" +
+                                    "Access-Control-Allow-Origin: *\r\n\r\n" +
+                                    "401 Unauthorized: Valid pairing PIN required (?pin=... or X-Focal-Pin header)\n"
+                            outputStream.write(unauthorized.toByteArray(StandardCharsets.UTF_8))
+                            outputStream.flush()
+                            clientListener?.onAuthChallengeFailed(clientId)
+                            socket.close()
+                            return
+                        }
+
                         val responseHeader = "HTTP/1.1 200 OK\r\n" +
                                 "Content-Type: video/h264\r\n" +
                                 "Connection: close\r\n" +
@@ -207,15 +247,15 @@ class WifiTransport(
                     }
 
                     path == "/status" -> {
-                        val json = """{"status":"online","transport":"wifi","clients":${activeClients.size},"primaryCodec":"H264"}"""
-                        val resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${json.length}\r\n\r\n$json"
+                        val json = """{"status":"online","transport":"wifi","clients":${activeClients.size},"primaryCodec":"H264","requiresAuth":true}"""
+                        val resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${json.length}\r\nAccess-Control-Allow-Origin: *\r\n\r\n$json"
                         outputStream.write(resp.toByteArray(StandardCharsets.UTF_8))
                         outputStream.flush()
                         socket.close()
                     }
 
                     else -> {
-                        val html = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nFocal Local Webcam H.264 Stream Ready\nEndpoint: /stream.h264"
+                        val html = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nAccess-Control-Allow-Origin: *\r\n\r\nFocal Local Webcam Ready\nAuthentication required for /stream.h264"
                         outputStream.write(html.toByteArray(StandardCharsets.UTF_8))
                         outputStream.flush()
                         socket.close()

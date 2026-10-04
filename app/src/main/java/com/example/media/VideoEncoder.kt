@@ -4,7 +4,6 @@ import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.os.Build
-import android.util.Log
 import android.view.Surface
 import com.example.data.model.StreamCodec
 import kotlinx.coroutines.CoroutineScope
@@ -12,10 +11,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.nio.ByteBuffer
 
 interface VideoEncoderListener {
-    fun onEncodedNal(codec: StreamCodec, isKeyframe: Boolean, timestampUs: Long, data: ByteArray)
+    fun onEncodedNal(codec: StreamCodec, isKeyframe: Boolean, isConfig: Boolean, timestampUs: Long, data: ByteArray)
     fun onEncoderError(throwable: Throwable)
 }
 
@@ -59,7 +57,17 @@ class VideoEncoder(
                 }
             }
 
-            codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC).apply {
+            // Prefer hardware AVC encoder when available
+            val bestEncoderInfo = DeviceCapabilities.findBestAvcEncoder()
+            codec = if (bestEncoderInfo != null) {
+                try {
+                    MediaCodec.createByCodecName(bestEncoderInfo.name)
+                } catch (_: Throwable) {
+                    MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+                }
+            } else {
+                MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+            }.apply {
                 configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
                 inputSurface = createInputSurface()
                 start()
@@ -69,7 +77,7 @@ class VideoEncoder(
             startDrainLoop()
             return true
         } catch (e: Throwable) {
-            isRunning = false
+            stop()
             listener.onEncoderError(e)
             return false
         }
@@ -117,16 +125,24 @@ class VideoEncoder(
 
                             if (isCodecConfig) {
                                 spsPpsHeader = outData
+                                listener.onEncodedNal(
+                                    codec = StreamCodec.H264,
+                                    isKeyframe = false,
+                                    isConfig = true,
+                                    timestampUs = bufferInfo.presentationTimeUs,
+                                    data = outData
+                                )
                             } else {
-                                val nalToSend = if (isKeyframe && spsPpsHeader != null) {
+                                val (nalToSend, hasConfig) = if (isKeyframe && spsPpsHeader != null) {
                                     // Prepend SPS/PPS to IDR keyframe so new connecting clients can decode immediately
-                                    spsPpsHeader!! + outData
+                                    (spsPpsHeader!! + outData) to true
                                 } else {
-                                    outData
+                                    outData to false
                                 }
                                 listener.onEncodedNal(
                                     codec = StreamCodec.H264,
                                     isKeyframe = isKeyframe,
+                                    isConfig = hasConfig,
                                     timestampUs = bufferInfo.presentationTimeUs,
                                     data = nalToSend
                                 )

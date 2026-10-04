@@ -38,6 +38,11 @@ object CameraStreamBroadcaster {
     private var lastFpsTimestamp = System.currentTimeMillis()
 
     fun pushFrame(jpegBytes: ByteArray) {
+        // Enforce format integrity: drop non-JPEG payloads (e.g. H.264 NAL units starting with 0x00)
+        if (jpegBytes.size < 2 || jpegBytes[0] != 0xFF.toByte() || jpegBytes[1] != 0xD8.toByte()) {
+            return
+        }
+
         latestFrame = jpegBytes
         frameCount++
         val now = System.currentTimeMillis()

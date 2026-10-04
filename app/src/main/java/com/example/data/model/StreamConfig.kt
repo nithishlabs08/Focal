@@ -24,7 +24,9 @@ data class OutputProfile(
 enum class StreamCodec(val identifier: String, val displayName: String) {
     H264("H264", "Hardware H.264 (AVC)"),
     HEVC("HEVC", "Hardware H.265 (HEVC)"),
-    MJPEG("MJPEG", "MJPEG (Compatibility Fallback)")
+    MJPEG("MJPEG", "MJPEG (Compatibility Fallback)"),
+    PCM("PCM", "Linear PCM 16-bit 48kHz Mono"),
+    AAC("AAC", "AAC-LC")
 }
 
 enum class QualityPreset(val displayName: String, val width: Int, val height: Int, val fps: Int, val defaultBitrateMbps: Float) {

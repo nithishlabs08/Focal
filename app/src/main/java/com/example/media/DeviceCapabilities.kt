@@ -3,7 +3,7 @@ package com.example.media
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.media.MediaFormat
-import android.util.Log
+import android.os.Build
 
 data class ClampedConfig(
     val width: Int,
@@ -25,19 +25,64 @@ object DeviceCapabilities {
         Pair(3840, 2160)
     )
 
-    fun queryH264EncoderCapabilities(): MediaCodecInfo.CodecCapabilities? {
+    /**
+     * Determines whether a given MediaCodecInfo is a true hardware-accelerated codec.
+     * Uses API 29+ isHardwareAccelerated if available, or vendor naming conventions as fallback.
+     */
+    fun isHardwareAccelerated(info: MediaCodecInfo): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            info.isHardwareAccelerated
+        } else {
+            val name = info.name.lowercase()
+            !name.startsWith("omx.google.") &&
+            !name.startsWith("c2.android.") &&
+            !name.startsWith("omx.ffmpeg.") &&
+            !name.contains("soft") &&
+            !name.contains("sw")
+        }
+    }
+
+    /**
+     * Finds the best AVC (H.264) encoder available on the device, preferring
+     * hardware-accelerated codecs over software implementations.
+     */
+    fun findBestAvcEncoder(): MediaCodecInfo? {
         return try {
             val codecList = MediaCodecList(MediaCodecList.REGULAR_CODECS)
+            var softwareFallback: MediaCodecInfo? = null
             for (info in codecList.codecInfos) {
-                if (info.isEncoder) {
-                    for (type in info.supportedTypes) {
-                        if (type.equals(MediaFormat.MIMETYPE_VIDEO_AVC, ignoreCase = true)) {
-                            return info.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC)
-                        }
+                if (info.isEncoder && info.supportedTypes.any { it.equals(MediaFormat.MIMETYPE_VIDEO_AVC, ignoreCase = true) }) {
+                    if (isHardwareAccelerated(info)) {
+                        return info
+                    } else if (softwareFallback == null) {
+                        softwareFallback = info
                     }
                 }
             }
+            softwareFallback
+        } catch (_: Throwable) {
             null
+        }
+    }
+
+    fun isHardwareAvcSupported(): Boolean {
+        val encoder = findBestAvcEncoder() ?: return false
+        return isHardwareAccelerated(encoder)
+    }
+
+    fun getHardwareAccelLabel(): String {
+        val encoder = findBestAvcEncoder() ?: return "Software Fallback"
+        return if (isHardwareAccelerated(encoder)) {
+            "MediaCodec HW (${encoder.name})"
+        } else {
+            "Software Fallback (${encoder.name})"
+        }
+    }
+
+    fun queryH264EncoderCapabilities(): MediaCodecInfo.CodecCapabilities? {
+        return try {
+            val encoder = findBestAvcEncoder()
+            encoder?.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC)
         } catch (_: Throwable) {
             null
         }
@@ -64,8 +109,8 @@ object DeviceCapabilities {
     }
 
     /**
-     * Dynamically verifies requested width, height, and fps against hardware encoder
-     * and returns the closest safe configuration with zero crash.
+     * Dynamically verifies requested width, height, and fps against device encoder capabilities
+     * and returns the closest safe configuration without assuming a software encoder is hardware accelerated.
      */
     fun clampConfiguration(
         requestedWidth: Int,
@@ -78,8 +123,12 @@ object DeviceCapabilities {
         var clamped = false
         var explanation: String? = null
 
+        val encoder = findBestAvcEncoder()
+        val isHw = encoder != null && isHardwareAccelerated(encoder)
         val caps = queryH264EncoderCapabilities()
         val videoCaps = caps?.videoCapabilities
+
+        val encoderTypePrefix = if (isHw) "Hardware" else "Software"
 
         // 1. Verify resolution
         if (videoCaps != null) {
@@ -88,27 +137,41 @@ object DeviceCapabilities {
                 if (videoCaps.isSizeSupported(1920, 1080)) {
                     targetW = 1920
                     targetH = 1080
-                    explanation = "Hardware encoder does not support $requestedWidth×$requestedHeight. Clamped to 1080p."
-                } else {
+                    explanation = "$encoderTypePrefix encoder does not support $requestedWidth×$requestedHeight. Clamped to 1080p."
+                } else if (videoCaps.isSizeSupported(1280, 720)) {
                     targetW = 1280
                     targetH = 720
-                    explanation = "Hardware encoder clamped resolution to 720p for compatibility."
+                    explanation = "$encoderTypePrefix encoder clamped resolution to 720p for compatibility."
+                } else {
+                    val maxW = try { videoCaps.supportedWidths.upper } catch (_: Throwable) { 1920 }
+                    val maxH = try { videoCaps.supportedHeights.upper } catch (_: Throwable) { 1080 }
+                    targetW = minOf(targetW, maxW)
+                    targetH = minOf(targetH, maxH)
+                    explanation = "$encoderTypePrefix encoder clamped resolution to ${targetW}x${targetH}."
                 }
             }
 
             // 2. Verify frame rate
             if (!videoCaps.areSizeAndRateSupported(targetW, targetH, targetFps.toDouble())) {
                 clamped = true
-                targetFps = 30
-                explanation = (explanation?.let { "$it " } ?: "") + "Target $requestedFps FPS unsupported at $targetW×$targetH. Fallback to 30 FPS."
+                val maxFps = try {
+                    videoCaps.getSupportedFrameRatesFor(targetW, targetH).upper.toInt()
+                } catch (_: Throwable) {
+                    30
+                }
+                targetFps = minOf(targetFps, maxFps).coerceAtLeast(1)
+                if (targetFps > 30 && maxFps >= 30) {
+                    targetFps = 30
+                }
+                explanation = (explanation?.let { "$it " } ?: "") + "Target $requestedFps FPS unsupported at $targetW×$targetH. Fallback to $targetFps FPS."
             }
         } else {
-            // Baseline fallback for headless environments: support up to 4K and 60 FPS
+            // Baseline fallback for headless environments
             if (targetW > 3840 || targetH > 2160) {
                 targetW = 1920
                 targetH = 1080
                 clamped = true
-                explanation = "Hardware encoder clamped resolution to 1080p."
+                explanation = "$encoderTypePrefix encoder clamped resolution to 1080p."
             }
             if (targetFps > 60) {
                 targetFps = 30
