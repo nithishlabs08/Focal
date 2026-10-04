@@ -8,12 +8,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.atomic.AtomicLong
 
 class TransportManager(
-    private val pairingPinProvider: () -> String,
+    private val pairingPinProvider: () -> String = { PairingManager.currentPin },
+    private val pinValidator: ((String) -> Boolean)? = { PairingManager.isPinValid(it) },
     val wifiPort: Int = 8080,
     val adbPort: Int = 8082
 ) {
-    private val wifiTransport = WifiTransport(wifiPort, pairingPinProvider)
-    private val adbTransport = AdbTransport(adbPort, pairingPinProvider)
+    private val wifiTransport = WifiTransport(wifiPort, pairingPinProvider, pinValidator)
+    private val adbTransport = AdbTransport(adbPort, pairingPinProvider, pinValidator)
 
     private val _connectedClientsCount = MutableStateFlow(0)
     val connectedClientsCount: StateFlow<Int> = _connectedClientsCount.asStateFlow()
@@ -67,6 +68,8 @@ class TransportManager(
     fun stop() {
         wifiTransport.stop()
         adbTransport.stop()
+        wifiTransport.setClientListener(null)
+        adbTransport.setClientListener(null)
         _connectedClientsCount.value = 0
     }
 

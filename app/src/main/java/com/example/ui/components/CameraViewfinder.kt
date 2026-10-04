@@ -169,6 +169,12 @@ fun CameraViewfinder(
         }
     }
 
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose {
+            CameraCapturePipeline.detachPreviewSurfaceProvider()
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -184,19 +190,27 @@ fun CameraViewfinder(
             AndroidView(
                 factory = { ctx ->
                     val previewView = PreviewView(ctx)
-                    CameraCapturePipeline.bindCamera(
-                        context = ctx,
-                        lifecycleOwner = lifecycleOwner,
-                        surfaceProvider = previewView.surfaceProvider,
-                        isFront = isFrontCamera
-                    ) { cam ->
-                        activeCamera = cam
-                        isCameraBound = cam != null
+                    if (isLiveStreaming) {
+                        CameraCapturePipeline.attachPreviewSurfaceProvider(previewView.surfaceProvider)
+                        isCameraBound = true
+                    } else {
+                        CameraCapturePipeline.bindCamera(
+                            context = ctx,
+                            lifecycleOwner = lifecycleOwner,
+                            surfaceProvider = previewView.surfaceProvider,
+                            isFront = isFrontCamera
+                        ) { cam ->
+                            activeCamera = cam
+                            isCameraBound = cam != null
+                        }
                     }
                     previewView
                 },
-                update = {
-                    // Update preview state if required
+                update = { previewView ->
+                    if (isLiveStreaming) {
+                        CameraCapturePipeline.attachPreviewSurfaceProvider(previewView.surfaceProvider)
+                        isCameraBound = true
+                    }
                 },
                 modifier = Modifier
                     .fillMaxSize()

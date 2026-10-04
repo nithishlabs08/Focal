@@ -20,9 +20,11 @@ import com.example.data.model.OutputProfile
 import com.example.data.model.StreamCodec
 import com.example.data.model.StreamDiagnostics
 import com.example.data.model.StreamMode
+import com.example.media.CameraCapturePipeline
 import com.example.media.DeviceCapabilities
 import com.example.server.CameraStreamBroadcaster
 import com.example.server.WebcamStreamService
+import com.example.transport.PairingManager
 import com.example.util.NetworkUtils
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -153,12 +155,12 @@ class FocalViewModel : ViewModel() {
 
     init {
         val localIp = NetworkUtils.getLocalIpAddress()
-        val initialPin = _uiState.value.pairingCode
         val hwLabel = DeviceCapabilities.getHardwareAccelLabel()
         _uiState.update {
             it.copy(
                 deviceIp = localIp,
-                streamUrl = "http://$localIp:8080/stream.h264?pin=$initialPin",
+                streamUrl = "http://$localIp:8080/stream.h264",
+                pairingCode = PairingManager.currentPin,
                 diagnostics = it.diagnostics.copy(hardwareAccel = hwLabel)
             )
         }
@@ -181,7 +183,33 @@ class FocalViewModel : ViewModel() {
             }
         }
 
-        // Collect broadcaster real client count and FPS
+        // Sync real audio active state from service
+        viewModelScope.launch {
+            WebcamStreamService.isAudioActive.collect { audioActive ->
+                _uiState.update { state ->
+                    state.copy(
+                        diagnostics = state.diagnostics.copy(isAudioActive = audioActive)
+                    )
+                }
+            }
+        }
+
+        // Sync startup failures from service
+        viewModelScope.launch {
+            WebcamStreamService.startupError.collect { errorMsg ->
+                if (errorMsg != null) {
+                    _uiState.update { state ->
+                        state.copy(
+                            isStreaming = false,
+                            destination = AppDestination.MAIN_STREAM,
+                            clampNotice = errorMsg
+                        )
+                    }
+                }
+            }
+        }
+
+        // Collect broadcaster real client count
         viewModelScope.launch {
             CameraStreamBroadcaster.connectedClients.collect { clients ->
                 _uiState.update { state ->
@@ -195,9 +223,10 @@ class FocalViewModel : ViewModel() {
             }
         }
 
+        // Collect actual pipeline FPS from camera-to-encoder pipeline
         viewModelScope.launch {
-            CameraStreamBroadcaster.streamFps.collect { fps ->
-                if (_uiState.value.isStreaming) {
+            CameraCapturePipeline.actualFps.collect { fps ->
+                if (_uiState.value.isStreaming && fps > 0f) {
                     _uiState.update { state ->
                         state.copy(
                             diagnostics = state.diagnostics.copy(fps = fps)
@@ -237,7 +266,8 @@ class FocalViewModel : ViewModel() {
         _uiState.update {
             it.copy(
                 deviceIp = realIp,
-                streamUrl = "http://$realIp:8080/stream.h264?pin=${it.pairingCode}",
+                streamUrl = "http://$realIp:8080/stream.h264",
+                pairingCode = PairingManager.currentPin,
                 isCameraPermissionGranted = hasCam,
                 isMicPermissionGranted = hasMic,
                 diagnostics = it.diagnostics.copy(hardwareAccel = hwLabel)
@@ -507,8 +537,9 @@ class FocalViewModel : ViewModel() {
         val rawWidth = parts.getOrNull(0)?.toIntOrNull() ?: 1920
         val rawHeight = parts.getOrNull(1)?.toIntOrNull() ?: 1080
         val rawFps = currentProfile.fps
+        val rawBitrate = currentProfile.bitrateMbps
 
-        val clamped = DeviceCapabilities.clampConfiguration(rawWidth, rawHeight, rawFps)
+        val clamped = DeviceCapabilities.clampConfiguration(rawWidth, rawHeight, rawFps, rawBitrate)
 
         if (context != null) {
             try {
@@ -524,7 +555,7 @@ class FocalViewModel : ViewModel() {
         }
         _uiState.update {
             it.copy(
-                isStreaming = true,
+                isStreaming = false, // Becomes true when WebcamStreamService.isRunning emits true
                 streamElapsedSeconds = 0L,
                 destination = AppDestination.ACTIVE_STREAM,
                 isClampedFallback = clamped.isClamped,
@@ -605,12 +636,12 @@ class FocalViewModel : ViewModel() {
     }
 
     fun regeneratePairingCode() {
-        val newCode = (100000..999999).random().toString()
+        val newCode = PairingManager.generateNewPin()
         WebcamStreamService.currentPairingPin = newCode
         _uiState.update {
             it.copy(
                 pairingCode = newCode,
-                streamUrl = "http://${it.deviceIp}:8080/stream.h264?pin=$newCode"
+                streamUrl = "http://${it.deviceIp}:8080/stream.h264"
             )
         }
     }

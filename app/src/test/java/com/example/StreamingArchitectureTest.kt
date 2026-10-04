@@ -1,8 +1,10 @@
 package com.example
 
 import android.content.Context
-import android.content.Intent
-import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.os.Build
+import android.view.Surface
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.model.CameraConflictState
 import com.example.data.model.HostConnectionMode
@@ -16,23 +18,23 @@ import com.example.media.RecoveryManager
 import com.example.server.CameraStreamBroadcaster
 import com.example.server.WebcamStreamService
 import com.example.transport.PacketType
+import com.example.transport.PairingManager
 import com.example.transport.StreamPacket
 import com.example.transport.TransportClientListener
 import com.example.transport.TransportManager
 import com.example.transport.WifiTransport
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.BufferedReader
 import java.io.InputStreamReader
-import java.io.OutputStream
 import java.net.Socket
 import java.nio.charset.StandardCharsets
 
@@ -41,7 +43,7 @@ import java.nio.charset.StandardCharsets
 class StreamingArchitectureTest {
 
     // ==========================================
-    // Priority 5: Packet Format Tests
+    // Priority 5 & 7: Packet Format & Protocol Tests
     // ==========================================
 
     @Test
@@ -149,6 +151,27 @@ class StreamingArchitectureTest {
     }
 
     @Test
+    fun packetFormat_distinguishesVideoAndAudioPackets() {
+        val videoPacket = StreamPacket(
+            codec = StreamCodec.H264,
+            type = PacketType.VIDEO_NAL,
+            isKeyframe = true,
+            payload = byteArrayOf(1, 2, 3)
+        )
+        val audioPacket = StreamPacket(
+            codec = StreamCodec.PCM,
+            type = PacketType.AUDIO_RAW,
+            payload = byteArrayOf(4, 5, 6)
+        )
+
+        val encodedVideo = StreamPacket.encode(videoPacket)
+        val encodedAudio = StreamPacket.encode(audioPacket)
+
+        assertNotEquals(encodedVideo[5], encodedAudio[5]) // Codec IDs differ (1 vs 4)
+        assertNotEquals(encodedVideo[6], encodedAudio[6]) // Packet types differ (VIDEO_NAL vs AUDIO_RAW)
+    }
+
+    @Test
     fun packetFormat_rejectsMalformedOrTruncatedPacket() {
         // Less than header size
         val truncated = byteArrayOf('F'.code.toByte(), 'O'.code.toByte())
@@ -160,7 +183,7 @@ class StreamingArchitectureTest {
     }
 
     // ==========================================
-    // Priority 2: Broadcaster Format Integrity Tests
+    // Priority 2 & 4: Media Separation Tests
     // ==========================================
 
     @Test
@@ -180,10 +203,6 @@ class StreamingArchitectureTest {
         assertEquals(0xD8.toByte(), currentFrame[1])
         assertFalse(currentFrame.contentEquals(h264Nal))
     }
-
-    // ==========================================
-    // Priority 4: Video-Only & Audio Permission Tests
-    // ==========================================
 
     @Test
     fun audioController_neverRecordsInVideoOnlyModeEvenWithPermission() {
@@ -221,7 +240,72 @@ class StreamingArchitectureTest {
     }
 
     // ==========================================
-    // Priority 3: Startup Failure & Clean Teardown Tests
+    // Priority 2: Service Readiness & Startup Failure Tests
+    // ==========================================
+
+    @Test
+    fun service_initialStateIsNotRunningUntilReadinessEstablished() {
+        WebcamStreamService.resetStateForTesting()
+        assertFalse(WebcamStreamService.isRunning.value)
+        assertFalse(WebcamStreamService.isAudioActive.value)
+        assertNull(WebcamStreamService.startupError.value)
+    }
+
+    @Test
+    fun service_marksReadyOnlyWhenTriggered() {
+        WebcamStreamService.resetStateForTesting()
+        assertFalse(WebcamStreamService.isRunning.value)
+
+        WebcamStreamService.markStreamReadyForTesting()
+        assertTrue(WebcamStreamService.isRunning.value)
+
+        WebcamStreamService.resetStateForTesting()
+        assertFalse(WebcamStreamService.isRunning.value)
+    }
+
+    // ==========================================
+    // Priority 1 & 3: Camera Capture Pipeline Independence & Canvas Relay Tests
+    // ==========================================
+
+    @Test
+    fun cameraCapturePipeline_managesEncoderSurfaceSafely() {
+        assertNull(CameraCapturePipeline.getEncoderSurface())
+
+        CameraCapturePipeline.setEncoderSurface(null, 1280, 720)
+        assertEquals(1280, CameraCapturePipeline.encoderWidth)
+        assertEquals(720, CameraCapturePipeline.encoderHeight)
+
+        CameraCapturePipeline.unbind()
+        assertNull(CameraCapturePipeline.getEncoderSurface())
+    }
+
+    @Test
+    fun cameraCapturePipeline_handlesRotationAndAspectRatioSafely() {
+        val bitmap = Bitmap.createBitmap(1920, 1080, Bitmap.Config.ARGB_8888)
+
+        // Invalid or null surface returns false gracefully without throwing
+        val fakeSurface = Surface()
+        val rendered = CameraCapturePipeline.renderBitmapToSurface(bitmap, fakeSurface, rotationDegrees = 90)
+        assertFalse(rendered)
+
+        fakeSurface.release()
+        bitmap.recycle()
+    }
+
+    @Test
+    fun cameraCapturePipeline_attachAndDetachPreviewIndependentOfEncoder() {
+        CameraCapturePipeline.setEncoderSurface(null, 1920, 1080)
+        CameraCapturePipeline.attachPreviewSurfaceProvider(null)
+        CameraCapturePipeline.detachPreviewSurfaceProvider()
+
+        // Detaching preview does not unbind the configured encoder dimensions
+        assertEquals(1920, CameraCapturePipeline.encoderWidth)
+        assertEquals(1080, CameraCapturePipeline.encoderHeight)
+        CameraCapturePipeline.unbind()
+    }
+
+    // ==========================================
+    // Priority 3 & 6: Recovery and Shutdown Tests
     // ==========================================
 
     @Test
@@ -256,20 +340,18 @@ class StreamingArchitectureTest {
     }
 
     @Test
-    fun cameraCapturePipeline_managesEncoderSurfaceSafely() {
-        assertNull(CameraCapturePipeline.getEncoderSurface())
+    fun transportManager_stopsAndCleansUpAllTransports() {
+        val tm = TransportManager(pairingPinProvider = { "123456" }, wifiPort = 18095, adbPort = 18096)
+        tm.start(HostConnectionMode.WIFI)
+        assertTrue(tm.isAnyRunning())
 
-        // Setting encoder surface updates dimensions
-        CameraCapturePipeline.setEncoderSurface(null, 1280, 720)
-        assertEquals(1280, CameraCapturePipeline.encoderWidth)
-        assertEquals(720, CameraCapturePipeline.encoderHeight)
-
-        CameraCapturePipeline.unbind()
-        assertNull(CameraCapturePipeline.getEncoderSurface())
+        tm.stop()
+        assertFalse(tm.isAnyRunning())
+        assertEquals(0, tm.connectedClientsCount.value)
     }
 
     // ==========================================
-    // Priority 6: Device Capabilities & Encoder Selection Tests
+    // Priority 6 & 7: Device Capabilities & Bitrate Tests
     // ==========================================
 
     @Test
@@ -282,6 +364,18 @@ class StreamingArchitectureTest {
         assertEquals(1920, clamped.width)
         assertEquals(1080, clamped.height)
         assertEquals(30, clamped.fps)
+    }
+
+    @Test
+    fun deviceCapabilities_honorsRequestedBitrateWhenSupported() {
+        val requestedBitrate = 8.5f
+        val clamped = DeviceCapabilities.clampConfiguration(
+            requestedWidth = 1920,
+            requestedHeight = 1080,
+            requestedFps = 60,
+            requestedBitrateMbps = requestedBitrate
+        )
+        assertEquals(requestedBitrate, clamped.bitrateMbps, 0.01f)
     }
 
     @Test
@@ -302,8 +396,27 @@ class StreamingArchitectureTest {
     }
 
     // ==========================================
-    // Priority 7: Wi-Fi Authentication Tests
+    // Priority 5: Hardened Wi-Fi Pairing Tests
     // ==========================================
+
+    @Test
+    fun pairingManager_validatesSixDigitCodeAndExpiration() {
+        PairingManager.setPin("654321", validityMs = 60000)
+        assertEquals("654321", PairingManager.currentPin)
+        assertTrue(PairingManager.isPinValid("654321"))
+        assertFalse(PairingManager.isPinValid("000000"))
+        assertFalse(PairingManager.isPinValid(null))
+        assertFalse(PairingManager.isPinValid(""))
+
+        // Expired pin
+        PairingManager.setPin("654321", validityMs = -1000)
+        assertFalse(PairingManager.isPinValid("654321"))
+
+        // Regenerate new pin
+        val generated = PairingManager.generateNewPin(validityMs = 60000)
+        assertEquals(6, generated.length)
+        assertTrue(PairingManager.isPinValid(generated))
+    }
 
     @Test
     fun wifiTransport_rejectsUnauthenticatedHttpStreamAccess() {
@@ -324,7 +437,6 @@ class StreamingArchitectureTest {
         assertTrue(transport.isRunning)
 
         try {
-            // Client attempts to stream without providing the PIN
             val socket = Socket("127.0.0.1", testPort)
             val out = socket.getOutputStream()
             out.write("GET /stream.h264 HTTP/1.1\r\nHost: localhost\r\n\r\n".toByteArray(StandardCharsets.US_ASCII))
@@ -335,6 +447,7 @@ class StreamingArchitectureTest {
             assertNotNull(responseLine)
             assertTrue("Expected 401 Unauthorized but got: $responseLine", responseLine.contains("401 Unauthorized"))
             socket.close()
+            assertTrue(authFailedReported)
         } finally {
             transport.stop()
             assertFalse(transport.isRunning)
@@ -342,9 +455,35 @@ class StreamingArchitectureTest {
     }
 
     @Test
-    fun wifiTransport_acceptsAuthenticatedHttpStreamAccessWithQueryPin() {
+    fun wifiTransport_rejectsQueryParameterPinAuthentication() {
         val testPort = 18091
+        // Even with the correct PIN in query string, URL query params MUST NOT be accepted
         val transport = WifiTransport(port = testPort, pairingPinProvider = { "123456" })
+
+        transport.start()
+        assertTrue(transport.isRunning)
+
+        try {
+            val socket = Socket("127.0.0.1", testPort)
+            val out = socket.getOutputStream()
+            out.write("GET /stream.h264?pin=123456 HTTP/1.1\r\nHost: localhost\r\n\r\n".toByteArray(StandardCharsets.US_ASCII))
+            out.flush()
+
+            val reader = BufferedReader(InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))
+            val responseLine = reader.readLine()
+            assertNotNull(responseLine)
+            assertTrue("Query parameter pin must be rejected with 401: $responseLine", responseLine.contains("401 Unauthorized"))
+            socket.close()
+        } finally {
+            transport.stop()
+            assertFalse(transport.isRunning)
+        }
+    }
+
+    @Test
+    fun wifiTransport_acceptsHeaderPinAuthentication() {
+        val testPort = 18092
+        val transport = WifiTransport(port = testPort, pairingPinProvider = { "555888" })
         var authenticatedReported = false
 
         transport.setClientListener(object : TransportClientListener {
@@ -360,10 +499,9 @@ class StreamingArchitectureTest {
         assertTrue(transport.isRunning)
 
         try {
-            // Client supplies ?pin=123456
             val socket = Socket("127.0.0.1", testPort)
             val out = socket.getOutputStream()
-            out.write("GET /stream.h264?pin=123456 HTTP/1.1\r\nHost: localhost\r\n\r\n".toByteArray(StandardCharsets.US_ASCII))
+            out.write("GET /stream.h264 HTTP/1.1\r\nHost: localhost\r\nX-Focal-Pin: 555888\r\n\r\n".toByteArray(StandardCharsets.US_ASCII))
             out.flush()
 
             val reader = BufferedReader(InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))
@@ -371,6 +509,43 @@ class StreamingArchitectureTest {
             assertNotNull(responseLine)
             assertTrue("Expected 200 OK but got: $responseLine", responseLine.contains("200 OK"))
             socket.close()
+            assertTrue(authenticatedReported)
+        } finally {
+            transport.stop()
+            assertFalse(transport.isRunning)
+        }
+    }
+
+    @Test
+    fun wifiTransport_acceptsBearerAuthorizationHeader() {
+        val testPort = 18093
+        val transport = WifiTransport(port = testPort, pairingPinProvider = { "777999" })
+        var authenticatedReported = false
+
+        transport.setClientListener(object : TransportClientListener {
+            override fun onClientConnected(clientId: String, address: String) {}
+            override fun onClientAuthenticated(clientId: String) {
+                authenticatedReported = true
+            }
+            override fun onClientDisconnected(clientId: String) {}
+            override fun onAuthChallengeFailed(clientId: String) {}
+        })
+
+        transport.start()
+        assertTrue(transport.isRunning)
+
+        try {
+            val socket = Socket("127.0.0.1", testPort)
+            val out = socket.getOutputStream()
+            out.write("GET /stream.h264 HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer 777999\r\n\r\n".toByteArray(StandardCharsets.US_ASCII))
+            out.flush()
+
+            val reader = BufferedReader(InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))
+            val responseLine = reader.readLine()
+            assertNotNull(responseLine)
+            assertTrue("Expected 200 OK but got: $responseLine", responseLine.contains("200 OK"))
+            socket.close()
+            assertTrue(authenticatedReported)
         } finally {
             transport.stop()
             assertFalse(transport.isRunning)

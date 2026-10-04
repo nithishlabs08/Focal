@@ -20,7 +20,8 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class AdbTransport(
     override val port: Int = 8082,
-    private val pairingPinProvider: () -> String
+    private val pairingPinProvider: () -> String = { PairingManager.currentPin },
+    private val pinValidator: ((String) -> Boolean)? = null
 ) : StreamTransport {
 
     override val name: String = "USB / ADB Loopback Transport"
@@ -141,7 +142,12 @@ class AdbTransport(
 
             if (authLine.startsWith("AUTH ")) {
                 val candidatePin = authLine.substringAfter("AUTH ").trim()
-                if (candidatePin == pairingPinProvider()) {
+                val isValid = if (pinValidator != null) {
+                    pinValidator.invoke(candidatePin)
+                } else {
+                    candidatePin == pairingPinProvider()
+                }
+                if (isValid) {
                     outputStream.write("AUTH_OK\n".toByteArray(StandardCharsets.UTF_8))
                     outputStream.flush()
 

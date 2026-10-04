@@ -13,6 +13,9 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
 import com.example.MainActivity
 import com.example.R
 import com.example.data.model.CameraConflictState
@@ -27,16 +30,16 @@ import com.example.media.DeviceCapabilities
 import com.example.media.RecoveryManager
 import com.example.media.VideoEncoder
 import com.example.media.VideoEncoderListener
+import com.example.transport.PairingManager
 import com.example.transport.TransportManager
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-class WebcamStreamService : Service() {
+class WebcamStreamService : Service(), LifecycleOwner {
 
-    private val scope = CoroutineScope(Dispatchers.Main)
+    private val lifecycleRegistry = LifecycleRegistry(this)
+    override val lifecycle: Lifecycle get() = lifecycleRegistry
 
     private var transportManager: TransportManager? = null
     private var videoEncoder: VideoEncoder? = null
@@ -63,6 +66,12 @@ class WebcamStreamService : Service() {
         private val _isRunning = MutableStateFlow(false)
         val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
 
+        private val _isAudioActive = MutableStateFlow(false)
+        val isAudioActive: StateFlow<Boolean> = _isAudioActive.asStateFlow()
+
+        private val _startupError = MutableStateFlow<String?>(null)
+        val startupError: StateFlow<String?> = _startupError.asStateFlow()
+
         private val _conflictState = MutableStateFlow(CameraConflictState.NORMAL)
         val conflictState: StateFlow<CameraConflictState> = _conflictState.asStateFlow()
 
@@ -75,7 +84,11 @@ class WebcamStreamService : Service() {
         private val _connectedClients = MutableStateFlow(0)
         val connectedClients: StateFlow<Int> = _connectedClients.asStateFlow()
 
-        var currentPairingPin: String = "849207"
+        var currentPairingPin: String
+            get() = PairingManager.currentPin
+            set(value) {
+                PairingManager.setPin(value)
+            }
 
         fun start(
             context: Context,
@@ -114,14 +127,27 @@ class WebcamStreamService : Service() {
             }
             context.stopService(intent)
         }
+
+        fun markStreamReadyForTesting() {
+            _isRunning.value = true
+        }
+
+        fun resetStateForTesting() {
+            _isRunning.value = false
+            _isAudioActive.value = false
+            _startupError.value = null
+        }
     }
 
     override fun onCreate() {
         super.onCreate()
+        lifecycleRegistry.currentState = Lifecycle.State.CREATED
         createNotificationChannel()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        _startupError.value = null
+
         if (intent?.action == ACTION_STOP) {
             stopStreaming()
             stopSelf()
@@ -140,13 +166,19 @@ class WebcamStreamService : Service() {
         val rawWidth = intent?.getIntExtra(EXTRA_WIDTH, 1920) ?: 1920
         val rawHeight = intent?.getIntExtra(EXTRA_HEIGHT, 1080) ?: 1080
         val rawFps = intent?.getIntExtra(EXTRA_FPS, 30) ?: 30
+        val rawBitrate = intent?.getFloatExtra(EXTRA_BITRATE, 4.8f) ?: 4.8f
 
-        // Clamped configuration against hardware encoder
-        val clamped = DeviceCapabilities.clampConfiguration(rawWidth, rawHeight, rawFps)
+        // Check camera permission first
+        val hasCameraPermission = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
 
-        // Avoid leaking resources on repeated starts by stopping existing session first
-        if (_isRunning.value) {
-            stopStreaming()
+        if (!hasCameraPermission) {
+            _startupError.value = "Camera permission not granted"
+            _isRunning.value = false
+            stopSelf()
+            return START_NOT_STICKY
         }
 
         // Check microphone permission before audio capture
@@ -155,12 +187,26 @@ class WebcamStreamService : Service() {
             Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
 
-        val audioEnabled = streamMode == StreamMode.VIDEO_AND_AUDIO && hasMicPermission
+        val audioRequested = streamMode == StreamMode.VIDEO_AND_AUDIO && hasMicPermission
 
-        startForegroundWithNotification(clamped.width, clamped.height, clamped.fps, connectionMode, audioEnabled)
+        // Clamped configuration against hardware encoder honoring requested bitrate
+        val clamped = DeviceCapabilities.clampConfiguration(rawWidth, rawHeight, rawFps, rawBitrate)
 
-        val startedSuccessfully = initAndStartPipeline(
-            pairingPin = pairingPin,
+        // Avoid leaking resources on repeated starts by stopping existing session first
+        if (_isRunning.value) {
+            stopStreaming()
+        }
+
+        startForegroundWithNotification(
+            clamped.width,
+            clamped.height,
+            clamped.fps,
+            connectionMode,
+            audioEnabled = audioRequested,
+            isReady = false
+        )
+
+        val pipelineInitialized = initAndStartPipeline(
             connectionMode = connectionMode,
             streamMode = streamMode,
             hasMicPermission = hasMicPermission,
@@ -170,8 +216,7 @@ class WebcamStreamService : Service() {
             bitrateMbps = clamped.bitrateMbps
         )
 
-        if (startedSuccessfully) {
-            _isRunning.value = true
+        if (pipelineInitialized) {
             return START_STICKY
         } else {
             _isRunning.value = false
@@ -182,7 +227,6 @@ class WebcamStreamService : Service() {
     }
 
     private fun initAndStartPipeline(
-        pairingPin: String,
         connectionMode: HostConnectionMode,
         streamMode: StreamMode,
         hasMicPermission: Boolean,
@@ -193,11 +237,15 @@ class WebcamStreamService : Service() {
     ): Boolean {
         try {
             // 1. Initialize Transport Manager
-            val tm = TransportManager(pairingPinProvider = { currentPairingPin })
+            val tm = TransportManager(
+                pairingPinProvider = { PairingManager.currentPin },
+                pinValidator = { PairingManager.isPinValid(it) }
+            )
             transportManager = tm
             tm.start(connectionMode)
 
             if (!tm.isAnyRunning()) {
+                _startupError.value = "Failed to bind network transport"
                 return false
             }
 
@@ -222,6 +270,7 @@ class WebcamStreamService : Service() {
             videoEncoder = encoder
             val encoderStarted = encoder.start()
             if (!encoderStarted) {
+                _startupError.value = "Failed to initialize video encoder"
                 return false
             }
 
@@ -236,18 +285,20 @@ class WebcamStreamService : Service() {
             }
             audioController = AudioController(audioListener)
             if (streamMode == StreamMode.VIDEO_AND_AUDIO && hasMicPermission) {
-                audioController?.startRecording(hasPermission = true, streamMode = streamMode)
+                val audioStarted = audioController?.startRecording(hasPermission = true, streamMode = streamMode) == true
+                _isAudioActive.value = audioStarted
+            } else {
+                _isAudioActive.value = false
             }
 
             // 4. Initialize Recovery Manager
             recoveryManager = RecoveryManager(
                 onRetryCamera = {
-                    // Retry binding camera surface to encoder
                     CameraCapturePipeline.rebind(applicationContext)
                 },
                 onReinitEncoder = {
                     videoEncoder?.stop()
-                    val safeConfig = DeviceCapabilities.clampConfiguration(1280, 720, 30)
+                    val safeConfig = DeviceCapabilities.clampConfiguration(1280, 720, 30, 2.4f)
                     val fallbackEncoder = VideoEncoder(
                         safeConfig.width,
                         safeConfig.height,
@@ -262,19 +313,51 @@ class WebcamStreamService : Service() {
                         CameraCapturePipeline.rebind(applicationContext)
                         true
                     } else {
+                        _startupError.value = "Fallback encoder initialization failed"
                         false
                     }
                 }
             )
 
+            // 5. Bind camera capture session to service lifecycle
+            lifecycleRegistry.currentState = Lifecycle.State.RESUMED
+            CameraCapturePipeline.bindSessionCamera(
+                context = applicationContext,
+                lifecycleOwner = this,
+                isFront = false,
+                width = width,
+                height = height,
+                onFirstFrame = {
+                    // Actual readiness: Transport, encoder, camera bound AND first live frame reached encoder
+                    _isRunning.value = true
+                    updateNotification(
+                        width = width,
+                        height = height,
+                        fps = fps,
+                        mode = connectionMode,
+                        audioEnabled = _isAudioActive.value,
+                        isReady = true
+                    )
+                },
+                onError = { err ->
+                    _startupError.value = "Camera binding failed: ${err.message}"
+                    stopStreaming()
+                    stopSelf()
+                }
+            )
+
             return true
-        } catch (_: Throwable) {
+        } catch (t: Throwable) {
+            _startupError.value = t.message ?: "Startup failed"
             return false
         }
     }
 
     private fun stopStreaming() {
         _isRunning.value = false
+        _isAudioActive.value = false
+
+        CameraCapturePipeline.unbind()
         CameraCapturePipeline.setEncoderSurface(null)
 
         audioController?.stopRecording()
@@ -288,10 +371,15 @@ class WebcamStreamService : Service() {
 
         recoveryManager?.clearState()
         recoveryManager = null
+
+        if (lifecycleRegistry.currentState != Lifecycle.State.DESTROYED) {
+            lifecycleRegistry.currentState = Lifecycle.State.CREATED
+        }
     }
 
     override fun onDestroy() {
         stopStreaming()
+        lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } else {
@@ -323,8 +411,44 @@ class WebcamStreamService : Service() {
         height: Int,
         fps: Int,
         mode: HostConnectionMode,
-        audioEnabled: Boolean
+        audioEnabled: Boolean,
+        isReady: Boolean
     ) {
+        val notification = buildNotification(width, height, fps, mode, audioEnabled, isReady)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+            if (audioEnabled) {
+                type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            }
+            startForeground(NOTIFICATION_ID, notification, type)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
+    }
+
+    private fun updateNotification(
+        width: Int,
+        height: Int,
+        fps: Int,
+        mode: HostConnectionMode,
+        audioEnabled: Boolean,
+        isReady: Boolean
+    ) {
+        val notification = buildNotification(width, height, fps, mode, audioEnabled, isReady)
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        manager?.notify(NOTIFICATION_ID, notification)
+    }
+
+    private fun buildNotification(
+        width: Int,
+        height: Int,
+        fps: Int,
+        mode: HostConnectionMode,
+        audioEnabled: Boolean,
+        isReady: Boolean
+    ): android.app.Notification {
         val launchIntent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
             this,
@@ -343,26 +467,22 @@ class WebcamStreamService : Service() {
             PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Focal Webcam Active")
-            .setContentText("Hardware H.264 • ${width}x$height @ $fps FPS • ${mode.displayName}")
+        val title = if (isReady) "Focal Webcam Active" else "Focal Webcam Starting…"
+        val statusText = if (isReady) {
+            val audioTag = if (audioEnabled) " + 48kHz PCM" else ""
+            "Hardware H.264 • ${width}x$height @ $fps FPS$audioTag • ${mode.displayName}"
+        } else {
+            "Connecting camera & hardware encoder…"
+        }
+
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle(title)
+            .setContentText(statusText)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(pendingIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop Stream", stopPendingIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
-            if (audioEnabled) {
-                type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-            }
-            startForeground(NOTIFICATION_ID, notification, type)
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA)
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
-        }
     }
 }

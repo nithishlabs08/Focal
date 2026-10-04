@@ -10,13 +10,32 @@ import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
 import com.example.MainActivity
 import com.example.server.WebcamStreamService
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 @RequiresApi(Build.VERSION_CODES.N)
 class FocalTileService : TileService() {
 
+    private var observeJob: Job? = null
+    private val scope = CoroutineScope(Dispatchers.Main)
+
     override fun onStartListening() {
         super.onStartListening()
         updateTileState()
+        observeJob?.cancel()
+        observeJob = scope.launch {
+            WebcamStreamService.isRunning.collect { running ->
+                updateTileState(running)
+            }
+        }
+    }
+
+    override fun onStopListening() {
+        observeJob?.cancel()
+        observeJob = null
+        super.onStopListening()
     }
 
     override fun onClick() {
@@ -35,9 +54,9 @@ class FocalTileService : TileService() {
             ) == PackageManager.PERMISSION_GRANTED
 
             if (hasCameraPermission) {
-                // Start with user's saved configuration
+                // Start stream session; tile state stays INACTIVE until transport, encoder,
+                // and camera capture have started and the first live frame reaches the encoder.
                 WebcamStreamService.start(this)
-                updateTileState(true)
             } else {
                 // Must not silently request permissions that were never granted.
                 // Open MainActivity so user can grant permissions.

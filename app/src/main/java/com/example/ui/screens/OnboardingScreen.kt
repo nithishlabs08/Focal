@@ -378,7 +378,7 @@ fun OnboardingScreen(
             )
             Spacer(modifier = Modifier.width(10.dp))
             Text(
-                text = "Your camera and microphone data stays strictly between your phone and connected computer over your protected local network or USB wire.",
+                text = "Your camera and microphone data stays strictly on your local network or USB wire with zero cloud ingress. Note: local Wi-Fi streams are not transport-encrypted; use USB mode for full link isolation.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 lineHeight = 18.sp

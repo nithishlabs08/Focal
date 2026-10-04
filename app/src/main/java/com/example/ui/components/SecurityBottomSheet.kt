@@ -91,6 +91,8 @@ fun SecurityBottomSheet(
                 SecurityFeatureRow(text = "Zero Telemetry or Analytics")
                 Spacer(modifier = Modifier.height(10.dp))
                 SecurityFeatureRow(text = "Air-Gapped USB Compatible")
+                Spacer(modifier = Modifier.height(10.dp))
+                SecurityFeatureRow(text = "Wi-Fi Pairing PIN Protected (TLS not yet implemented; use USB for physical isolation)")
             }
 
             Spacer(modifier = Modifier.height(20.dp))

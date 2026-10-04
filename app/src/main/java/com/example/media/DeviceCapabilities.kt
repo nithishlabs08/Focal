@@ -111,11 +111,13 @@ object DeviceCapabilities {
     /**
      * Dynamically verifies requested width, height, and fps against device encoder capabilities
      * and returns the closest safe configuration without assuming a software encoder is hardware accelerated.
+     * Honors the selected bitrate when supported by the device encoder.
      */
     fun clampConfiguration(
         requestedWidth: Int,
         requestedHeight: Int,
-        requestedFps: Int
+        requestedFps: Int,
+        requestedBitrateMbps: Float? = null
     ): ClampedConfig {
         var targetW = requestedWidth
         var targetH = requestedHeight
@@ -181,16 +183,41 @@ object DeviceCapabilities {
         }
 
         val recommendedBitrate = calculateBitrate(targetW, targetH, targetFps)
+        val finalBitrate: Float
+        if (requestedBitrateMbps != null && requestedBitrateMbps > 0f) {
+            val bitrateRange = videoCaps?.bitrateRange
+            if (bitrateRange != null) {
+                val requestedBps = (requestedBitrateMbps * 1_000_000).toInt()
+                if (bitrateRange.contains(requestedBps)) {
+                    finalBitrate = requestedBitrateMbps
+                } else {
+                    val clampedBps = bitrateRange.clamp(requestedBps)
+                    finalBitrate = clampedBps / 1_000_000f
+                    clamped = true
+                    explanation = (explanation?.let { "$it " } ?: "") + "Bitrate ${requestedBitrateMbps} Mbps outside encoder range. Clamped to ${finalBitrate} Mbps."
+                }
+            } else {
+                finalBitrate = requestedBitrateMbps.coerceIn(0.5f, 50.0f)
+            }
+        } else {
+            finalBitrate = recommendedBitrate
+        }
 
         return ClampedConfig(
             width = targetW,
             height = targetH,
             fps = targetFps,
-            bitrateMbps = recommendedBitrate,
+            bitrateMbps = finalBitrate,
             isClamped = clamped,
             explanation = explanation
         )
     }
+
+    fun clampConfiguration(
+        requestedWidth: Int,
+        requestedHeight: Int,
+        requestedFps: Int
+    ): ClampedConfig = clampConfiguration(requestedWidth, requestedHeight, requestedFps, null)
 
     fun calculateBitrate(width: Int, height: Int, fps: Int): Float {
         return when {

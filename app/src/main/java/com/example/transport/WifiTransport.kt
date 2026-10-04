@@ -20,7 +20,8 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class WifiTransport(
     override val port: Int = 8080,
-    private val pairingPinProvider: () -> String
+    private val pairingPinProvider: () -> String = { PairingManager.currentPin },
+    private val pinValidator: ((String) -> Boolean)? = null
 ) : StreamTransport {
 
     override val name: String = "Wi-Fi Local Transport"
@@ -129,6 +130,15 @@ class WifiTransport(
         }
     }
 
+    private fun isPinMatching(candidate: String?): Boolean {
+        if (candidate.isNullOrBlank()) return false
+        return if (pinValidator != null) {
+            pinValidator.invoke(candidate)
+        } else {
+            candidate == pairingPinProvider()
+        }
+    }
+
     private fun handleIncomingConnection(socket: Socket) {
         val clientId = "wifi_client_${clientCounter.incrementAndGet()}"
         val remoteAddress = socket.inetAddress?.hostAddress ?: "unknown"
@@ -150,9 +160,7 @@ class WifiTransport(
             // Case A: Focal Desktop Bridge Binary Connection with Pairing PIN
             if (initialLine.startsWith("AUTH ")) {
                 val candidatePin = initialLine.substringAfter("AUTH ").trim()
-                val expectedPin = pairingPinProvider()
-
-                if (candidatePin == expectedPin) {
+                if (isPinMatching(candidatePin)) {
                     outputStream.write("AUTH_OK\n".toByteArray(StandardCharsets.UTF_8))
                     outputStream.flush()
 
@@ -182,7 +190,6 @@ class WifiTransport(
             if (parts.size >= 2) {
                 val fullPath = parts[1]
                 val path = fullPath.substringBefore("?")
-                val queryString = if (fullPath.contains("?")) fullPath.substringAfter("?") else ""
 
                 // Read all HTTP headers
                 val headers = mutableMapOf<String, String>()
@@ -197,21 +204,10 @@ class WifiTransport(
                     headerLine = reader.readLine()
                 }
 
-                val expectedPin = pairingPinProvider()
-
-                // Extract PIN from query params (?pin=... or ?auth=...), X-Focal-Pin header, or Authorization header
-                val queryParams = queryString.split("&").associate { param ->
-                    val eqIdx = param.indexOf('=')
-                    if (eqIdx > 0) {
-                        param.substring(0, eqIdx) to param.substring(eqIdx + 1)
-                    } else {
-                        param to ""
-                    }
-                }
-                val queryPin = queryParams["pin"] ?: queryParams["auth"]
+                // Authentication MUST come from request headers or binary handshake only.
+                // Do NOT accept the pairing code in URL query parameters.
                 val headerPin = headers["x-focal-pin"] ?: headers["authorization"]?.removePrefix("Bearer ")?.trim()
-                val candidatePin = queryPin ?: headerPin
-                val isAuthenticated = !candidatePin.isNullOrBlank() && candidatePin == expectedPin
+                val isAuthenticated = isPinMatching(headerPin)
 
                 when {
                     path == "/stream.h264" || path == "/video.h264" || path == "/live" -> {
@@ -221,7 +217,7 @@ class WifiTransport(
                                     "WWW-Authenticate: Bearer realm=\"Focal Webcam\"\r\n" +
                                     "Connection: close\r\n" +
                                     "Access-Control-Allow-Origin: *\r\n\r\n" +
-                                    "401 Unauthorized: Valid pairing PIN required (?pin=... or X-Focal-Pin header)\n"
+                                    "401 Unauthorized: Valid pairing PIN required via 'X-Focal-Pin' header or 'Authorization: Bearer <pin>'. Query parameter authentication is disabled for security.\n"
                             outputStream.write(unauthorized.toByteArray(StandardCharsets.UTF_8))
                             outputStream.flush()
                             clientListener?.onAuthChallengeFailed(clientId)
