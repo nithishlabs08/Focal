@@ -134,7 +134,7 @@ class TvStreamClient(
     private fun readPacketStream(input: InputStream) {
         val headerBuffer = ByteArray(StreamPacket.HEADER_SIZE)
 
-        while (isActive && isRunning.get()) {
+        while (isRunning.get()) {
             // Read 20-byte header
             if (!readFully(input, headerBuffer, 0, StreamPacket.HEADER_SIZE)) break
 

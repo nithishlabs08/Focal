@@ -117,8 +117,13 @@ class TvDiscoveryManager(context: Context) {
             return
         }
 
+        val manager = nsdManager ?: run {
+            finishResolve()
+            return
+        }
+
         try {
-            nsdManager.resolveService(info, object : NsdManager.ResolveListener {
+            manager.resolveService(info, object : NsdManager.ResolveListener {
                 override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
                     finishResolve()
                 }
