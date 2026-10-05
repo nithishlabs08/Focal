@@ -44,7 +44,7 @@ jobs:
           -keypass focalrelease \
           -dname "CN=Focal, OU=Focal, O=Focal, L=Local, S=Local, C=US"
 
-    - name: Build Split Architecture Release APKs
+    - name: Build Split Architecture Release APKs (Mobile & TV)
       run: gradle assembleRelease --stacktrace
       env:
         KEYSTORE_PATH: ${{ github.workspace }}/release.keystore
@@ -52,14 +52,17 @@ jobs:
         KEY_ALIAS: focal
         KEY_PASSWORD: focalrelease
 
-    - name: List Generated Split APKs
-      run: ls -la app/build/outputs/apk/release/
+    - name: Stage Release APKs
+      run: |
+        mkdir -p release-apks
+        find app/build/outputs/apk -name "*release*.apk" -exec cp {} release-apks/ \;
+        ls -la release-apks/
 
     - name: Upload Split Architecture APKs
       uses: actions/upload-artifact@v4
       with:
-        name: focal-split-apks
-        path: app/build/outputs/apk/release/*.apk
+        name: focal-release-apks
+        path: release-apks/*.apk
 
     - name: Publish GitHub Release
       if: github.ref == 'refs/heads/main'
@@ -67,21 +70,28 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         gh release delete v1.0.0 --yes || true
-        gh release create v1.0.0 app/build/outputs/apk/release/*.apk \
-          --title "Focal Android v1.0.0 (Split Architecture Release)" \
-          --notes "### Focal Android v1.0.0 Release (Split Architecture)
+        gh release create v1.0.0 release-apks/*.apk \
+          --title "Focal v1.0.0 (Mobile Streamer & Android TV Viewer)" \
+          --notes "### Focal v1.0.0 Release (Mobile & Android TV)
 
-          Optimized split architecture APKs (no bloated universal APK):
-          - **arm64-v8a**: Modern 64-bit ARM devices (Pixel, Galaxy, OnePlus, etc.)
-          - **armeabi-v7a**: 32-bit ARM devices
-          - **x86_64**: 64-bit Android emulators and x86_64 devices
-          - **x86**: 32-bit Android emulators
+          #### 📱 Focal Mobile (Camera Streamer)
+          *Turn your phone or tablet into a high-definition webcam for PC & TV.*
+          - **app-mobile-arm64-v8a-release.apk**: Modern 64-bit ARM phones (Pixel, Galaxy, OnePlus, Xiaomi)
+          - **app-mobile-armeabi-v7a-release.apk**: 32-bit ARM phones
+          - **app-mobile-universal-release.apk**: Universal mobile APK
+          - **app-mobile-x86_64-release.apk**: 64-bit Android emulators
+          - **app-mobile-x86-release.apk**: 32-bit Android emulators
 
-          #### Features & Architecture
-          - **Camera Capture Pipeline**: Decoupled from Compose lifecycle; streams continuously in background and starts directly from Quick Settings.
-          - **Stream Readiness**: Service and tile only report active once transport, encoder, and camera start and the first live frame reaches the encoder.
-          - **Camera-to-Encoder Relay**: Canvas relay with proper sensor rotation and aspect-ratio preservation.
-          - **Separate Media Paths**: Strict separation of H.264 Annex-B from JPEG/MJPEG broadcaster.
-          - **Audio Isolation**: 48 kHz mono signed 16-bit PCM; zero microphone access or permission demand in video-only mode.
-          - **Hardened Wi-Fi Pairing**: Short-lived pairing code with header-based authentication ('X-Focal-Pin' or 'Authorization: Bearer'); query parameter authentication disabled.
-          - **Clean Teardown & Recovery**: Total resource release on stop and camera conflict recovery rebind."
+          #### 📺 Focal TV (Big-Screen Viewer & Monitor)
+          *Stream your phone's camera live to your Android TV or tablet screen.*
+          - **app-tv-armeabi-v7a-release.apk**: Chromecast with Google TV, Fire TV Stick 4K, Xiaomi TV Box
+          - **app-tv-arm64-v8a-release.apk**: Nvidia Shield TV, Sony Bravia, premium Google TVs
+          - **app-tv-universal-release.apk**: Universal TV & Tablet APK (works on any Android TV or tablet)
+          - **app-tv-x86_64-release.apk**: Android TV emulators
+
+          #### Features & Highlights
+          - **Dual-Flavor Architecture**: Dedicated mobile streamer and lightweight TV client without camera bloat.
+          - **Zero-Config mDNS Discovery**: Instant LAN auto-discovery with '_focal._tcp.' and remote-friendly 6-digit PIN pairing.
+          - **Android TV Leanback Banner**: Native home screen launcher icon and full D-Pad remote navigation with LocalSend blue focus indicators.
+          - **Hardware Acceleration**: Low-latency H.264 MediaCodec decoder and 48 kHz PCM audio passthrough to TV speakers.
+          - **Native Picture-in-Picture (PiP)**: Keep your camera feed pinned in the corner of your TV while watching other apps."

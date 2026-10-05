@@ -18,6 +18,22 @@ android {
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
+  flavorDimensions += "device"
+  productFlavors {
+    create("mobile") {
+      dimension = "device"
+      applicationId = "com.focal.android"
+      versionName = "1.0"
+      manifestPlaceholders["appLabel"] = "Focal"
+    }
+    create("tv") {
+      dimension = "device"
+      applicationId = "com.focal.android.tv"
+      versionName = "1.0-tv"
+      manifestPlaceholders["appLabel"] = "Focal TV"
+    }
+  }
+
   signingConfigs {
     create("release") {
       val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/release.keystore"
@@ -71,7 +87,7 @@ android {
       isEnable = true
       reset()
       include("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
-      isUniversalApk = false
+      isUniversalApk = true
     }
   }
 }

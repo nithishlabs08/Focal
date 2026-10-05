@@ -1,0 +1,61 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+
+    <!-- Deep Slate LocalSend Background -->
+    <path
+        android:fillColor="#11151C"
+        android:pathData="M0,0h320v180h-320z" />
+
+    <!-- Subtle Slate Surface Card -->
+    <path
+        android:fillColor="#1A202C"
+        android:pathData="M16,16h288a12,12 0 0 1 12,12v124a12,12 0 0 1 -12,12h-288a12,12 0 0 1 -12,-12v-124a12,12 0 0 1 12,-12z" />
+
+    <!-- Primary Blue Glow Accent Ring -->
+    <path
+        android:fillColor="#1E3A8A"
+        android:pathData="M160,72m-36,0a36,36 0 1 1 72,0a36,36 0 1 1 -72,0" />
+
+    <!-- Camera Outer Body (Vibrant Blue #2563EB) -->
+    <path
+        android:fillColor="#2563EB"
+        android:pathData="M160,52c-15.46,0 -28,12.54 -28,28s12.54,28 28,28s28,-12.54 28,-28s-12.54,-28 -28,-28zM160,98c-9.94,0 -18,-8.06 -18,-18s8.06,-18 18,-18s18,8.06 18,18s-8.06,18 -18,18z" />
+
+    <!-- Camera Center Lens (Sky Blue #60A5FA) -->
+    <path
+        android:fillColor="#60A5FA"
+        android:pathData="M160,80m-10,0a10,10 0 1 1 20,0a10,10 0 1 1 -20,0" />
+
+    <!-- Small Lens Flare Dot -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M156,76m-2.5,0a2.5,2.5 0 1 1 5,0a2.5,2.5 0 1 1 -5,0" />
+
+    <!-- Top Camera Flash / Sensor Dot -->
+    <path
+        android:fillColor="#60A5FA"
+        android:pathData="M180,56m-3,0a3,3 0 1 1 6,0a3,3 0 1 1 -6,0" />
+
+    <!-- Focal Decorative Wave Bars -->
+    <path
+        android:fillColor="#2563EB"
+        android:pathData="M80,80m-4,0a4,4 0 1 1 8,0a4,4 0 1 1 -8,0" />
+    <path
+        android:fillColor="#1E3A8A"
+        android:pathData="M96,76h8v8h-8z" />
+    <path
+        android:fillColor="#1E3A8A"
+        android:pathData="M216,76h8v8h-8z" />
+    <path
+        android:fillColor="#2563EB"
+        android:pathData="M240,80m-4,0a4,4 0 1 1 8,0a4,4 0 1 1 -8,0" />
+
+    <!-- Baseline Accent Line -->
+    <path
+        android:fillColor="#2563EB"
+        android:pathData="M120,132h80v3h-80z" />
+
+</vector>
