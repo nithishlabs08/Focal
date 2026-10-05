@@ -29,8 +29,8 @@ jobs:
       with:
         gradle-version: '9.3.1'
 
-    - name: Run Unit Tests
-      run: gradle testDebugUnitTest --stacktrace
+    - name: Run Unit Tests (Mobile & TV)
+      run: gradle testMobileDebugUnitTest testTvDebugUnitTest --stacktrace
 
     - name: Generate Release Keystore
       run: |
@@ -45,7 +45,7 @@ jobs:
           -dname "CN=Focal, OU=Focal, O=Focal, L=Local, S=Local, C=US"
 
     - name: Build Split Architecture Release APKs (Mobile & TV)
-      run: gradle assembleRelease --stacktrace
+      run: gradle assembleMobileRelease assembleTvRelease --stacktrace
       env:
         KEYSTORE_PATH: ${{ github.workspace }}/release.keystore
         STORE_PASSWORD: focalrelease
