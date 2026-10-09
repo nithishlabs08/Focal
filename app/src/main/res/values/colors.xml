@@ -7,4 +7,8 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+
+    <!-- focal-web brand (public/favicon.svg, components/LogoMark.jsx) -->
+    <color name="focal_bg">#FF0E1513</color>
+    <color name="focal_accent">#FF82D5C8</color>
 </resources>
