@@ -25,14 +25,16 @@ android {
       applicationId = "com.focal.android"
       versionName = "1.0"
       manifestPlaceholders["appLabel"] = "Focal"
-      buildConfigField("boolean", "IS_STREAM_SENDER", "true")
+      buildConfigField("boolean", "CAN_HOST_CAMERA_STREAM", "true")
+      buildConfigField("boolean", "CAN_HOST_SCREEN_AUDIO_STREAM", "true")
     }
     create("tv") {
       dimension = "device"
       applicationId = "com.focal.android.tv"
       versionName = "1.0-tv"
       manifestPlaceholders["appLabel"] = "Focal TV"
-      buildConfigField("boolean", "IS_STREAM_SENDER", "false")
+      buildConfigField("boolean", "CAN_HOST_CAMERA_STREAM", "false")
+      buildConfigField("boolean", "CAN_HOST_SCREEN_AUDIO_STREAM", "true")
     }
   }
 

@@ -179,12 +179,6 @@ class WebcamStreamService : Service(), LifecycleOwner {
             return START_NOT_STICKY
         }
 
-        if (!FocalRoles.canHostStreams) {
-            _startupError.value = "Streaming is only available on the Focal phone app"
-            stopSelf()
-            return START_NOT_STICKY
-        }
-
         val pairingPin = intent?.getStringExtra(EXTRA_PAIRING_PIN) ?: currentPairingPin
         currentPairingPin = pairingPin
 
@@ -196,6 +190,23 @@ class WebcamStreamService : Service(), LifecycleOwner {
 
         val streamSourceStr = intent?.getStringExtra(EXTRA_STREAM_SOURCE) ?: StreamSource.CAMERA.name
         val streamSource = try { StreamSource.valueOf(streamSourceStr) } catch (_: Exception) { StreamSource.CAMERA }
+
+        when (streamSource) {
+            StreamSource.CAMERA -> {
+                if (!FocalRoles.canHostCameraStream) {
+                    _startupError.value = "Camera streaming is only available on the Focal phone app"
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+            }
+            else -> {
+                if (!FocalRoles.canHostScreenOrAudioStream) {
+                    _startupError.value = "Screen and audio streaming are not available on this build"
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+            }
+        }
         val projectionResultCode = intent?.getIntExtra(EXTRA_MEDIA_PROJECTION_RESULT_CODE, 0) ?: 0
         val projectionResultData = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             intent?.getParcelableExtra(EXTRA_MEDIA_PROJECTION_RESULT_DATA, Intent::class.java)
@@ -251,6 +262,7 @@ class WebcamStreamService : Service(), LifecycleOwner {
             clamped.height,
             clamped.fps,
             connectionMode,
+            streamSource = streamSource,
             audioEnabled = audioRequested,
             isReady = false
         )
@@ -545,18 +557,46 @@ class WebcamStreamService : Service(), LifecycleOwner {
         height: Int,
         fps: Int,
         mode: HostConnectionMode,
+        streamSource: StreamSource,
         audioEnabled: Boolean,
         isReady: Boolean
     ) {
         val notification = buildNotification(width, height, fps, mode, audioEnabled, isReady)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
-            if (audioEnabled) {
-                type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            var type = 0
+            when (streamSource) {
+                StreamSource.CAMERA -> {
+                    type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+                    if (audioEnabled) {
+                        type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                    }
+                }
+                StreamSource.SCREEN -> {
+                    type = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                    if (audioEnabled) {
+                        type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                    }
+                }
+                StreamSource.AUDIO_ONLY -> {
+                    type = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                }
             }
-            startForeground(NOTIFICATION_ID, notification, type)
+            if (type != 0) {
+                startForeground(NOTIFICATION_ID, notification, type)
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA)
+            val legacyType = when (streamSource) {
+                StreamSource.CAMERA -> ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+                StreamSource.SCREEN -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                StreamSource.AUDIO_ONLY -> 0
+            }
+            if (legacyType != 0) {
+                startForeground(NOTIFICATION_ID, notification, legacyType)
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }

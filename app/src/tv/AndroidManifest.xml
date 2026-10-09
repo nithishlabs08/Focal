@@ -5,9 +5,35 @@
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+
     <application
         android:banner="@drawable/tv_banner"
         android:isGame="false">
+
+        <service
+            android:name=".server.WebcamStreamService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="microphone|mediaProjection" />
+
+        <activity
+            android:name=".stream.ScreenCaptureRequestActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <receiver
+            android:name=".stream.FocalStreamIntentReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.focal.android.action.START_AUDIO_STREAM" />
+                <action android:name="com.focal.android.action.START_SCREEN_STREAM" />
+                <action android:name="com.focal.android.action.STOP_STREAM" />
+            </intent-filter>
+        </receiver>
 
         <activity
             android:name=".tv.ui.TvActivity"

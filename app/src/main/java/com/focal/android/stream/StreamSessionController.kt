@@ -32,7 +32,7 @@ object StreamSessionController {
         pairingPin: String? = null,
         profile: OutputProfile? = null
     ) {
-        if (!FocalRoles.canHostStreams) return
+        if (!FocalRoles.canHostCameraStream) return
         val pin = pairingPin ?: PairingManager.generateNewPin()
         WebcamStreamService.start(
             context = context,
@@ -50,7 +50,7 @@ object StreamSessionController {
         connectionMode: HostConnectionMode = HostConnectionMode.WIFI,
         pairingPin: String? = null
     ) {
-        if (!FocalRoles.canHostStreams) return
+        if (!FocalRoles.canHostScreenOrAudioStream) return
         val pin = pairingPin ?: PairingManager.generateNewPin()
         WebcamStreamService.start(
             context = context,
@@ -70,7 +70,7 @@ object StreamSessionController {
         streamMode: StreamMode = StreamMode.VIDEO_ONLY,
         pairingPin: String? = null
     ) {
-        if (!FocalRoles.canHostStreams) return
+        if (!FocalRoles.canHostScreenOrAudioStream) return
         val pin = pairingPin ?: PairingManager.generateNewPin()
         WebcamStreamService.start(
             context = context,

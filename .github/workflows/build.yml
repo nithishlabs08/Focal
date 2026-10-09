@@ -16,7 +16,7 @@ jobs:
 
     steps:
     - name: Checkout Repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up JDK 21
       uses: actions/setup-java@v5
@@ -25,7 +25,7 @@ jobs:
         distribution: 'temurin'
 
     - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v4
+      uses: gradle/actions/setup-gradle@v5
       with:
         gradle-version: '9.3.1'
 
@@ -62,7 +62,7 @@ jobs:
         ls -la release-apks/
 
     - name: Upload Split Architecture APKs
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: focal-release-apks
         path: release-apks/*.apk
@@ -93,7 +93,7 @@ jobs:
           - **app-tv-x86_64-release.apk**: Android TV emulators
 
           #### Features & Highlights
-          - **Dual-Flavor Architecture**: Dedicated mobile streamer and lightweight TV client without camera bloat.
+          - **Dual-Flavor Architecture**: Camera hosting on mobile only; shared FOCL transport, discovery, and screen/audio host on all flavors.
           - **Zero-Config mDNS Discovery**: Instant LAN auto-discovery with '_focal._tcp.' and remote-friendly 6-digit PIN pairing.
           - **Android TV Leanback Banner**: Native home screen launcher icon and full D-Pad remote navigation with LocalSend blue focus indicators.
           - **Hardware Acceleration**: Low-latency H.264 MediaCodec decoder and 48 kHz PCM audio passthrough to TV speakers.
