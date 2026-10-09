@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- branding/favicon.svg (focal-web out/favicon.svg): 64×64 tile, rx=14 on 108dp canvas -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
@@ -6,5 +7,5 @@
     android:viewportHeight="108">
     <path
         android:fillColor="@color/focal_bg"
-        android:pathData="M0,0h108v108h-108z" />
+        android:pathData="M23.625,0 H84.375 A23.625,23.625 0 0,1 108,23.625 V84.375 A23.625,23.625 0 0,1 84.375,108 H23.625 A23.625,23.625 0 0,1 0,84.375 V23.625 A23.625,23.625 0 0,1 23.625,0 Z" />
 </vector>
