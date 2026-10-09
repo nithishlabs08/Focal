@@ -6,6 +6,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
@@ -30,9 +31,27 @@
         </service>
 
         <activity
+            android:name=".stream.ScreenCaptureRequestActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <receiver
+            android:name=".stream.FocalStreamIntentReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.focal.android.action.START_CAMERA_STREAM" />
+                <action android:name="com.focal.android.action.START_AUDIO_STREAM" />
+                <action android:name="com.focal.android.action.START_SCREEN_STREAM" />
+                <action android:name="com.focal.android.action.STOP_STREAM" />
+            </intent-filter>
+        </receiver>
+
+        <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="${appLabel}"
+            android:supportsPictureInPicture="true"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"
             android:theme="@style/Theme.MyApplication">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

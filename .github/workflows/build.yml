@@ -32,6 +32,9 @@ jobs:
     - name: Run Unit Tests (Mobile & TV)
       run: gradle testMobileDebugUnitTest testTvDebugUnitTest --stacktrace
 
+    - name: Generate LAN TLS keystore
+      run: bash scripts/generate_lan_keystore.sh
+
     - name: Generate Release Keystore
       run: |
         keytool -genkeypair -v \
@@ -69,10 +72,10 @@ jobs:
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        gh release delete v1.0.0 --yes || true
-        gh release create v1.0.0 release-apks/*.apk \
-          --title "Focal v1.0.0 (Mobile Streamer & Android TV Viewer)" \
-          --notes "### Focal v1.0.0 Release (Mobile & Android TV)
+        gh release delete v1.1.0 --yes || true
+        gh release create v1.1.0 release-apks/*.apk \
+          --title "Focal v1.1.0 (Mobile Streamer & Android TV Viewer)" \
+          --notes "### Focal v1.1.0 Release (Mobile & Android TV)
 
           #### 📱 Focal Mobile (Camera Streamer)
           *Turn your phone or tablet into a high-definition webcam for PC & TV.*

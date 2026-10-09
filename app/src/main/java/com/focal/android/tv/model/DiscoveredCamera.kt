@@ -8,6 +8,7 @@ data class DiscoveredCamera(
     val name: String,
     val host: String,
     val port: Int = 8080,
+    val tlsPort: Int? = null,
     val lastSeenMs: Long = System.currentTimeMillis()
 ) {
     val streamUrl: String

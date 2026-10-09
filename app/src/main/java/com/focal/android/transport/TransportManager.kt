@@ -1,10 +1,12 @@
 package com.focal.android.transport
 
+import android.content.Context
 import com.focal.android.data.model.HostConnectionMode
 import com.focal.android.data.model.StreamCodec
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import javax.crypto.SecretKey
 import java.util.concurrent.atomic.AtomicLong
 
 class TransportManager(
@@ -14,7 +16,11 @@ class TransportManager(
     val adbPort: Int = 8082
 ) {
     private val wifiTransport = WifiTransport(wifiPort, pairingPinProvider, pinValidator)
+    private val tlsWifiTransport = WifiTransport(FocalLanTls.DEFAULT_TLS_PORT, pairingPinProvider, pinValidator)
     private val adbTransport = AdbTransport(adbPort, pairingPinProvider, pinValidator)
+
+    var tlsCertificateFingerprint: String? = null
+        private set
 
     private val _connectedClientsCount = MutableStateFlow(0)
     val connectedClientsCount: StateFlow<Int> = _connectedClientsCount.asStateFlow()
@@ -27,6 +33,16 @@ class TransportManager(
 
     private val bytesSentCounter = AtomicLong(0)
     private var lastBitrateTimestamp = System.currentTimeMillis()
+
+    /** When true, FOCL payloads are AES-GCM encrypted with a key derived from the pairing PIN. */
+    var encryptFoclPayloads: Boolean = true
+
+    @Volatile
+    private var sessionKey: SecretKey? = null
+
+    fun refreshSessionKey() {
+        sessionKey = FocalSessionCrypto.deriveKey(pairingPinProvider())
+    }
 
     private val clientListener = object : TransportClientListener {
         override fun onClientConnected(clientId: String, address: String) {
@@ -48,32 +64,47 @@ class TransportManager(
 
     init {
         wifiTransport.setClientListener(clientListener)
+        tlsWifiTransport.setClientListener(clientListener)
         adbTransport.setClientListener(clientListener)
     }
 
-    fun start(mode: HostConnectionMode) {
+    fun start(mode: HostConnectionMode, appContext: Context? = null) {
         when (mode) {
             HostConnectionMode.WIFI -> {
                 wifiTransport.start()
+                startTlsIfAvailable(appContext)
             }
             HostConnectionMode.USB_ADB -> {
                 adbTransport.start()
-                // Keep wifi transport available for local endpoints
                 wifiTransport.start()
+                startTlsIfAvailable(appContext)
             }
         }
         updateTotalClientCount()
     }
 
+    private fun startTlsIfAvailable(appContext: Context?) {
+        if (appContext == null) return
+        val material = runCatching { FocalLanTls.loadServerMaterial(appContext) }.getOrNull()
+        if (material != null) {
+            tlsCertificateFingerprint = material.certificateFingerprintSha256Base64
+            tlsWifiTransport.start(FocalLanTls.serverSocketFactory(material))
+        }
+    }
+
     fun stop() {
         wifiTransport.stop()
+        tlsWifiTransport.stop()
         adbTransport.stop()
         wifiTransport.setClientListener(null)
+        tlsWifiTransport.setClientListener(null)
         adbTransport.setClientListener(null)
+        tlsCertificateFingerprint = null
         _connectedClientsCount.value = 0
     }
 
-    fun isAnyRunning(): Boolean = wifiTransport.isRunning || adbTransport.isRunning
+    fun isAnyRunning(): Boolean =
+        wifiTransport.isRunning || tlsWifiTransport.isRunning || adbTransport.isRunning
 
     fun broadcastVideoNal(
         codec: StreamCodec,
@@ -118,8 +149,10 @@ class TransportManager(
     }
 
     fun broadcast(packet: StreamPacket) {
-        wifiTransport.broadcastPacket(packet)
-        adbTransport.broadcastPacket(packet)
+        val outbound = maybeEncrypt(packet)
+        wifiTransport.broadcastPacket(outbound)
+        tlsWifiTransport.broadcastPacket(outbound)
+        adbTransport.broadcastPacket(outbound)
 
         val totalBytes = bytesSentCounter.addAndGet(packet.payload.size.toLong())
         val now = System.currentTimeMillis()
@@ -137,6 +170,35 @@ class TransportManager(
     }
 
     private fun updateTotalClientCount() {
-        _connectedClientsCount.value = wifiTransport.activeClientsCount + adbTransport.activeClientsCount
+        _connectedClientsCount.value =
+            wifiTransport.activeClientsCount + tlsWifiTransport.activeClientsCount + adbTransport.activeClientsCount
+    }
+
+    fun broadcastHeartbeat(timestampUs: Long = System.nanoTime() / 1000) {
+        broadcast(
+            StreamPacket(
+                codec = StreamCodec.PCM,
+                type = PacketType.HEARTBEAT,
+                timestampUs = timestampUs,
+                payload = byteArrayOf()
+            )
+        )
+    }
+
+    private fun maybeEncrypt(packet: StreamPacket): StreamPacket {
+        if (!encryptFoclPayloads || packet.type == PacketType.HEARTBEAT || packet.isEncrypted) {
+            return packet
+        }
+        val key = sessionKey ?: FocalSessionCrypto.deriveKey(pairingPinProvider()).also { sessionKey = it }
+        val encrypted = FocalSessionCrypto.encrypt(key, packet.payload)
+        return StreamPacket(
+            codec = packet.codec,
+            type = packet.type,
+            isKeyframe = packet.isKeyframe,
+            isConfig = packet.isConfig,
+            isEncrypted = true,
+            timestampUs = packet.timestampUs,
+            payload = encrypted
+        )
     }
 }

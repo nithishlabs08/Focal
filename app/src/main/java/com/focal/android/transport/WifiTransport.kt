@@ -13,6 +13,7 @@ import java.io.OutputStream
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import javax.net.ssl.SSLServerSocketFactory
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
@@ -51,11 +52,19 @@ class WifiTransport(
     )
 
     override fun start() {
+        start(null)
+    }
+
+    fun start(tlsServerSocketFactory: SSLServerSocketFactory?) {
         if (isRunning) return
         try {
-            serverSocket = ServerSocket().apply {
-                reuseAddress = true
-                bind(InetSocketAddress(port))
+            serverSocket = if (tlsServerSocketFactory != null) {
+                tlsServerSocketFactory.createServerSocket(port)
+            } else {
+                ServerSocket().apply {
+                    reuseAddress = true
+                    bind(InetSocketAddress(port))
+                }
             }
             isRunning = true
 
@@ -161,7 +170,7 @@ class WifiTransport(
             if (initialLine.startsWith("AUTH ")) {
                 val candidatePin = initialLine.substringAfter("AUTH ").trim()
                 if (isPinMatching(candidatePin)) {
-                    outputStream.write("AUTH_OK\n".toByteArray(StandardCharsets.UTF_8))
+                    outputStream.write("AUTH_OK ENC1\n".toByteArray(StandardCharsets.UTF_8))
                     outputStream.flush()
 
                     val client = AuthenticatedClient(clientId, socket, outputStream, isAuthenticated = true, isRawPacketProtocol = true)
@@ -169,11 +178,13 @@ class WifiTransport(
                     clientListener?.onClientAuthenticated(clientId)
 
                     // Keep-alive loop reading heartbeat
+                    // Read keep-alive lines only; do not write text responses on this socket —
+                    // FOCL binary packets share the same OutputStream and interleaved PONG
+                    // lines break the TV client's packet parser.
                     while (isRunning && !socket.isClosed && socket.isConnected) {
                         val line = reader.readLine() ?: break
                         if (line == "PING") {
-                            outputStream.write("PONG\n".toByteArray(StandardCharsets.UTF_8))
-                            outputStream.flush()
+                            // Consumed; client may use FOCL HEARTBEAT for latency later.
                         }
                     }
                 } else {

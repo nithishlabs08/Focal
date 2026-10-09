@@ -1,7 +1,14 @@
 package com.focal.android
 
 import android.Manifest
+import android.app.Activity
+import android.app.PictureInPictureParams
 import android.content.ClipData
+import android.content.Intent
+import android.content.res.Configuration
+import android.media.projection.MediaProjectionManager
+import android.os.Build
+import android.util.Rational
 import android.content.ClipboardManager
 import android.content.Context
 import android.os.Bundle
@@ -64,6 +71,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -75,8 +86,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.focal.android.data.model.FocalAppMode
 import com.focal.android.data.model.HostConnectionMode
 import com.focal.android.data.model.StreamMode
+import com.focal.android.data.model.StreamSource
+import com.focal.android.tv.client.TvAudioPlayer
+import com.focal.android.tv.client.TvClientState
+import com.focal.android.tv.client.TvStreamClient
+import com.focal.android.tv.client.TvVideoDecoder
+import com.focal.android.tv.discovery.TvDiscoveryManager
+import com.focal.android.ui.receive.MobileReceiveScreen
+import com.focal.android.ui.receive.ReceivePlaybackCoordinator
 import com.focal.android.ui.components.CameraControlBar
 import com.focal.android.ui.components.CameraViewfinder
 import com.focal.android.ui.components.FocalTopBar
@@ -88,24 +108,86 @@ import com.focal.android.ui.theme.FocalTheme
 import com.focal.android.ui.viewmodel.FocalViewModel
 
 class MainActivity : ComponentActivity() {
+
+    private var isPipMode by mutableStateOf(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             FocalTheme {
-                FocalApp()
+                FocalApp(
+                    isPipMode = isPipMode,
+                    onEnterReceivePip = { enterReceivePictureInPicture() }
+                )
             }
         }
+    }
+
+    fun enterReceivePictureInPicture() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                val params = PictureInPictureParams.Builder()
+                    .setAspectRatio(Rational(16, 9))
+                    .build()
+                enterPictureInPictureMode(params)
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        // Receiver: float video while using other apps. Sender keeps running via foreground service.
+        if (ReceivePlaybackCoordinator.isReceivingStream) {
+            enterReceivePictureInPicture()
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        isPipMode = isInPictureInPictureMode
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FocalApp(
-    viewModel: FocalViewModel = viewModel()
+    viewModel: FocalViewModel = viewModel(),
+    isPipMode: Boolean = false,
+    onEnterReceivePip: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
+    var appMode by rememberSaveable { mutableStateOf(FocalAppMode.SEND) }
+
+    val receiveDiscovery = remember { TvDiscoveryManager(context.applicationContext) }
+    val receiveVideoDecoder = remember { TvVideoDecoder() }
+    val receiveAudioPlayer = remember { TvAudioPlayer() }
+    val receiveStreamClient = remember {
+        TvStreamClient(receiveVideoDecoder, receiveAudioPlayer)
+    }
+
+    LaunchedEffect(appMode) {
+        if (appMode == FocalAppMode.SEND) {
+            receiveStreamClient.disconnect()
+            ReceivePlaybackCoordinator.isReceivingStream = false
+        }
+    }
+
+    val projectionManager = remember {
+        context.getSystemService(MediaProjectionManager::class.java)
+    }
+    val screenCaptureLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            viewModel.startStreaming(context, result.resultCode, result.data)
+        } else {
+            Toast.makeText(context, "Screen capture permission denied", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     // Permission Request Launcher (Camera & Microphone)
     val permissionsLauncher = rememberLauncherForActivityResult(
@@ -169,7 +251,14 @@ fun FocalApp(
         topBar = {
             FocalTopBar(
                 title = "Focal",
-                subtitle = if (uiState.isStreaming) "Webcam Live • $streamDurationText" else "Webcam Ready",
+                subtitle = when (appMode) {
+                    FocalAppMode.RECEIVE -> "Watch a Focal sender on Wi‑Fi"
+                    FocalAppMode.SEND -> if (uiState.isStreaming) {
+                        "${uiState.streamSource.displayName} Live • $streamDurationText"
+                    } else {
+                        "Choose Camera, Screen, or Audio"
+                    }
+                },
                 showBack = false,
                 deviceIp = uiState.deviceIp
             )
@@ -180,6 +269,49 @@ fun FocalApp(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .navigationBarsPadding()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FocalAppMode.entries.forEach { mode ->
+                    val selected = appMode == mode
+                    Button(
+                        onClick = { appMode = mode },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (selected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.surfaceContainerHigh
+                            }
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            text = mode.displayName,
+                            color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
+
+            if (appMode == FocalAppMode.RECEIVE) {
+                MobileReceiveScreen(
+                    discoveryManager = receiveDiscovery,
+                    streamClient = receiveStreamClient,
+                    videoDecoder = receiveVideoDecoder,
+                    audioPlayer = receiveAudioPlayer,
+                    isPipMode = isPipMode,
+                    onEnterPip = onEnterReceivePip,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 6.dp)
                 .padding(bottom = 24.dp),
@@ -224,21 +356,74 @@ fun FocalApp(
             )
 
             // ==========================================
+            // 2b. Send source: Camera / Screen / Audio
+            // ==========================================
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                StreamSource.entries.forEach { source ->
+                    val selected = uiState.streamSource == source
+                    Button(
+                        onClick = {
+                            if (source == StreamSource.AUDIO_ONLY) {
+                                viewModel.setStreamSource(source)
+                                viewModel.setStreamMode(StreamMode.VIDEO_AND_AUDIO)
+                            } else {
+                                viewModel.setStreamSource(source)
+                            }
+                        },
+                        enabled = !uiState.isStreaming,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (selected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.surfaceContainerHigh
+                            }
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            text = source.displayName,
+                            fontSize = 12.sp,
+                            color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
+
+            // ==========================================
             // 3. Main Action Button: Start / Stop Stream
             // ==========================================
             Button(
                 onClick = {
-                    if (!uiState.isCameraPermissionGranted) {
-                        permissionsLauncher.launch(
-                            arrayOf(
-                                Manifest.permission.CAMERA,
-                                Manifest.permission.RECORD_AUDIO
-                            )
-                        )
-                    } else if (uiState.isStreaming) {
+                    if (uiState.isStreaming) {
                         viewModel.stopStreaming(context)
-                    } else {
-                        viewModel.startStreaming(context)
+                    } else when (uiState.streamSource) {
+                        StreamSource.SCREEN -> {
+                            screenCaptureLauncher.launch(projectionManager.createScreenCaptureIntent())
+                        }
+                        StreamSource.AUDIO_ONLY -> {
+                            if (!uiState.isMicPermissionGranted) {
+                                permissionsLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
+                            } else {
+                                viewModel.setStreamMode(StreamMode.VIDEO_AND_AUDIO)
+                                viewModel.startStreaming(context)
+                            }
+                        }
+                        StreamSource.CAMERA -> {
+                            if (!uiState.isCameraPermissionGranted) {
+                                permissionsLauncher.launch(
+                                    arrayOf(
+                                        Manifest.permission.CAMERA,
+                                        Manifest.permission.RECORD_AUDIO
+                                    )
+                                )
+                            } else {
+                                viewModel.startStreaming(context)
+                            }
+                        }
                     }
                 },
                 modifier = Modifier
@@ -258,9 +443,22 @@ fun FocalApp(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = if (uiState.isStreaming) "Stop Webcam Stream" else "Start Webcam Stream",
+                    text = if (uiState.isStreaming) {
+                        "Stop Stream"
+                    } else {
+                        "Start ${uiState.streamSource.displayName} Stream"
+                    },
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            if (uiState.isStreaming) {
+                Text(
+                    text = "Sending continues in the background — switch apps freely. Stop from the notification or Stop Stream.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
 
@@ -726,6 +924,8 @@ fun FocalApp(
                         )
                     )
                 }
+            }
+        }
             }
         }
     }

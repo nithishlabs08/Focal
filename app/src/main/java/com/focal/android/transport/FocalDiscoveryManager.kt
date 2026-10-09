@@ -25,7 +25,13 @@ object FocalDiscoveryManager {
     var registeredServiceName: String? = null
         private set
 
-    fun registerService(context: Context, port: Int = 8080, pin: String = PairingManager.currentPin) {
+    fun registerService(
+        context: Context,
+        port: Int = 8080,
+        pin: String = PairingManager.currentPin,
+        tlsPort: Int? = null,
+        tlsFingerprint: String? = null
+    ) {
         if (isRegistered) {
             unregisterService()
         }
@@ -48,7 +54,15 @@ object FocalDiscoveryManager {
                     setAttribute("mjpeg", "/stream.mjpg")
                     setAttribute("port", port.toString())
                     setAttribute("model", Build.MODEL)
-                    setAttribute("version", "1.0")
+                    setAttribute("version", "1.1")
+                    setAttribute("enc", "focl-aes-gcm")
+                    setAttribute("sources", "camera,screen,audio")
+                    if (tlsPort != null) {
+                        setAttribute("tls_port", tlsPort.toString())
+                    }
+                    if (!tlsFingerprint.isNullOrBlank()) {
+                        setAttribute("tls_fp", tlsFingerprint)
+                    }
                 }
             }
 

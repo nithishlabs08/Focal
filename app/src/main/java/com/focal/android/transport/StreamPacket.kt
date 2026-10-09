@@ -31,6 +31,7 @@ enum class PacketType(val code: Byte) {
  * [7]      Flags:
  *            Bit 0 (0x01): Keyframe (IDR frame)
  *            Bit 1 (0x02): Codec Configuration (SPS/PPS header for H.264/HEVC)
+ *            Bit 2 (0x04): Payload is AES-GCM encrypted (IV + ciphertext)
  * [8..15]  Timestamp in microseconds (Long, Big Endian)
  * [16..19] Payload length in bytes (Int, Big Endian)
  * [20..N]  Payload data bytes
@@ -47,6 +48,7 @@ data class StreamPacket(
     val type: PacketType,
     val isKeyframe: Boolean = false,
     val isConfig: Boolean = false,
+    val isEncrypted: Boolean = false,
     val timestampUs: Long = 0L,
     val payload: ByteArray
 ) {
@@ -57,7 +59,7 @@ data class StreamPacket(
         isKeyframe: Boolean,
         timestampUs: Long,
         payload: ByteArray
-    ) : this(codec, type, isKeyframe, false, timestampUs, payload)
+    ) : this(codec, type, isKeyframe, false, false, timestampUs, payload)
 
     companion object {
         val MAGIC = byteArrayOf('F'.code.toByte(), 'O'.code.toByte(), 'C'.code.toByte(), 'L'.code.toByte())
@@ -65,6 +67,7 @@ data class StreamPacket(
 
         const val FLAG_KEYFRAME: Byte = 0x01
         const val FLAG_CONFIG: Byte = 0x02
+        const val FLAG_ENCRYPTED: Byte = 0x04
 
         fun encode(packet: StreamPacket): ByteArray {
             val totalSize = HEADER_SIZE + packet.payload.size
@@ -85,6 +88,7 @@ data class StreamPacket(
             var flags: Byte = 0
             if (packet.isKeyframe) flags = (flags.toInt() or FLAG_KEYFRAME.toInt()).toByte()
             if (packet.isConfig) flags = (flags.toInt() or FLAG_CONFIG.toInt()).toByte()
+            if (packet.isEncrypted) flags = (flags.toInt() or FLAG_ENCRYPTED.toInt()).toByte()
             buffer.put(flags)
 
             buffer.putLong(packet.timestampUs)
@@ -126,6 +130,7 @@ data class StreamPacket(
             val flags = buffer.get()
             val isKeyframe = (flags.toInt() and FLAG_KEYFRAME.toInt()) != 0
             val isConfig = (flags.toInt() and FLAG_CONFIG.toInt()) != 0
+            val isEncrypted = (flags.toInt() and FLAG_ENCRYPTED.toInt()) != 0
 
             val timestampUs = buffer.getLong()
             val payloadLen = buffer.getInt()
@@ -137,7 +142,7 @@ data class StreamPacket(
             val payload = ByteArray(payloadLen)
             buffer.get(payload)
 
-            return StreamPacket(codec, type, isKeyframe, isConfig, timestampUs, payload)
+            return StreamPacket(codec, type, isKeyframe, isConfig, isEncrypted, timestampUs, payload)
         }
     }
 
@@ -150,6 +155,7 @@ data class StreamPacket(
         if (type != other.type) return false
         if (isKeyframe != other.isKeyframe) return false
         if (isConfig != other.isConfig) return false
+        if (isEncrypted != other.isEncrypted) return false
         if (timestampUs != other.timestampUs) return false
         if (!payload.contentEquals(other.payload)) return false
 
@@ -161,6 +167,7 @@ data class StreamPacket(
         result = 31 * result + type.hashCode()
         result = 31 * result + isKeyframe.hashCode()
         result = 31 * result + isConfig.hashCode()
+        result = 31 * result + isEncrypted.hashCode()
         result = 31 * result + timestampUs.hashCode()
         result = 31 * result + payload.contentHashCode()
         return result

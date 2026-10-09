@@ -19,6 +19,9 @@ import com.focal.android.data.model.OutputProfile
 import com.focal.android.data.model.StreamCodec
 import com.focal.android.data.model.StreamDiagnostics
 import com.focal.android.data.model.StreamMode
+import android.content.Intent
+import com.focal.android.data.model.StreamSource
+import com.focal.android.stream.StreamSessionController
 import com.focal.android.media.CameraCapturePipeline
 import com.focal.android.media.DeviceCapabilities
 import com.focal.android.server.CameraStreamBroadcaster
@@ -39,6 +42,7 @@ data class FocalUiState(
     val destination: AppDestination = AppDestination.MAIN_STREAM,
     val selectedTab: MainTab = MainTab.STREAM,
     val streamMode: StreamMode = StreamMode.VIDEO_ONLY,
+    val streamSource: StreamSource = StreamSource.CAMERA,
     val connectionMode: HostConnectionMode = HostConnectionMode.WIFI,
     val selectedSensor: CameraSensor = CameraSensor("0", "Back Main Camera", "1080p FHD", "", "", isFront = false, supportsTorch = true),
     val selectedProfile: OutputProfile = OutputProfile("1080p_30", "1080p • 30 FPS", "1920x1080", 30, 4.8f, "Standard", StreamCodec.H264),
@@ -274,6 +278,11 @@ class FocalViewModel : ViewModel() {
         _uiState.update { it.copy(selectedTab = tab) }
     }
 
+    fun setStreamSource(source: StreamSource) {
+        if (_uiState.value.isStreaming) return
+        _uiState.update { it.copy(streamSource = source) }
+    }
+
     fun setStreamMode(mode: StreamMode) {
         _uiState.update {
             it.copy(
@@ -432,7 +441,11 @@ class FocalViewModel : ViewModel() {
         }
     }
 
-    fun startStreaming(context: Context? = null) {
+    fun startStreaming(
+        context: Context? = null,
+        mediaProjectionResultCode: Int = 0,
+        mediaProjectionResultData: Intent? = null
+    ) {
         val currentProfile = _uiState.value.selectedProfile
         val parts = currentProfile.resolution.split("x", " ")
         val rawWidth = parts.getOrNull(0)?.toIntOrNull() ?: 1920
@@ -442,20 +455,46 @@ class FocalViewModel : ViewModel() {
 
         val clamped = DeviceCapabilities.clampConfiguration(rawWidth, rawHeight, rawFps, rawBitrate)
 
+        val streamPin = PairingManager.generateNewPin()
+
         if (context != null) {
             try {
-                WebcamStreamService.start(
-                    context = context,
-                    pairingPin = _uiState.value.pairingCode,
-                    connectionMode = _uiState.value.connectionMode,
-                    streamMode = _uiState.value.streamMode,
-                    profile = currentProfile.copy(fps = clamped.fps, bitrateMbps = clamped.bitrateMbps)
-                )
+                when (_uiState.value.streamSource) {
+                    StreamSource.SCREEN -> {
+                        if (mediaProjectionResultData != null) {
+                            StreamSessionController.startScreenStream(
+                                context = context,
+                                mediaProjectionResultCode = mediaProjectionResultCode,
+                                mediaProjectionResultData = mediaProjectionResultData,
+                                connectionMode = _uiState.value.connectionMode,
+                                streamMode = _uiState.value.streamMode,
+                                pairingPin = streamPin
+                            )
+                        }
+                    }
+                    StreamSource.AUDIO_ONLY -> {
+                        StreamSessionController.startAudioOnlyStream(
+                            context = context,
+                            connectionMode = _uiState.value.connectionMode,
+                            pairingPin = streamPin
+                        )
+                    }
+                    StreamSource.CAMERA -> {
+                        StreamSessionController.startCameraStream(
+                            context = context,
+                            connectionMode = _uiState.value.connectionMode,
+                            streamMode = _uiState.value.streamMode,
+                            pairingPin = streamPin,
+                            profile = currentProfile.copy(fps = clamped.fps, bitrateMbps = clamped.bitrateMbps)
+                        )
+                    }
+                }
             } catch (_: Exception) {
             }
         }
         _uiState.update {
             it.copy(
+                pairingCode = streamPin,
                 isStreaming = false, // Becomes true when WebcamStreamService.isRunning emits true
                 streamElapsedSeconds = 0L,
                 destination = AppDestination.ACTIVE_STREAM,

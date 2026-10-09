@@ -16,6 +16,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
+import com.focal.android.FocalRoles
 import com.focal.android.MainActivity
 import com.focal.android.R
 import com.focal.android.data.model.CameraConflictState
@@ -23,19 +24,29 @@ import com.focal.android.data.model.HostConnectionMode
 import com.focal.android.data.model.OutputProfile
 import com.focal.android.data.model.StreamCodec
 import com.focal.android.data.model.StreamMode
+import com.focal.android.data.model.StreamSource
 import com.focal.android.media.AudioCaptureListener
 import com.focal.android.media.AudioController
 import com.focal.android.media.CameraCapturePipeline
+import com.focal.android.media.ScreenCapturePipeline
 import com.focal.android.media.DeviceCapabilities
 import com.focal.android.media.RecoveryManager
 import com.focal.android.media.VideoEncoder
 import com.focal.android.media.VideoEncoderListener
 import com.focal.android.transport.FocalDiscoveryManager
+import com.focal.android.transport.FocalLanTls
 import com.focal.android.transport.PairingManager
 import com.focal.android.transport.TransportManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 class WebcamStreamService : Service(), LifecycleOwner {
 
@@ -46,6 +57,8 @@ class WebcamStreamService : Service(), LifecycleOwner {
     private var videoEncoder: VideoEncoder? = null
     private var audioController: AudioController? = null
     private var recoveryManager: RecoveryManager? = null
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var heartbeatJob: Job? = null
 
     companion object {
         const val CHANNEL_ID = "focal_webcam_stream_channel"
@@ -63,6 +76,9 @@ class WebcamStreamService : Service(), LifecycleOwner {
         const val EXTRA_HEIGHT = "com.focal.android.server.EXTRA_HEIGHT"
         const val EXTRA_FPS = "com.focal.android.server.EXTRA_FPS"
         const val EXTRA_BITRATE = "com.focal.android.server.EXTRA_BITRATE"
+        const val EXTRA_STREAM_SOURCE = "com.focal.android.server.EXTRA_STREAM_SOURCE"
+        const val EXTRA_MEDIA_PROJECTION_RESULT_CODE = "com.focal.android.server.EXTRA_MEDIA_PROJECTION_RESULT_CODE"
+        const val EXTRA_MEDIA_PROJECTION_RESULT_DATA = "com.focal.android.server.EXTRA_MEDIA_PROJECTION_RESULT_DATA"
 
         private val _isRunning = MutableStateFlow(false)
         val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
@@ -96,7 +112,10 @@ class WebcamStreamService : Service(), LifecycleOwner {
             pairingPin: String = currentPairingPin,
             connectionMode: HostConnectionMode = HostConnectionMode.WIFI,
             streamMode: StreamMode = StreamMode.VIDEO_ONLY,
-            profile: OutputProfile? = null
+            streamSource: StreamSource = StreamSource.CAMERA,
+            profile: OutputProfile? = null,
+            mediaProjectionResultCode: Int = 0,
+            mediaProjectionResultData: Intent? = null
         ) {
             currentPairingPin = pairingPin
             val intent = Intent(context, WebcamStreamService::class.java).apply {
@@ -104,6 +123,11 @@ class WebcamStreamService : Service(), LifecycleOwner {
                 putExtra(EXTRA_PAIRING_PIN, pairingPin)
                 putExtra(EXTRA_CONNECTION_MODE, connectionMode.name)
                 putExtra(EXTRA_STREAM_MODE, streamMode.name)
+                putExtra(EXTRA_STREAM_SOURCE, streamSource.name)
+                if (streamSource == StreamSource.SCREEN && mediaProjectionResultData != null) {
+                    putExtra(EXTRA_MEDIA_PROJECTION_RESULT_CODE, mediaProjectionResultCode)
+                    putExtra(EXTRA_MEDIA_PROJECTION_RESULT_DATA, mediaProjectionResultData)
+                }
                 if (profile != null) {
                     val parts = profile.resolution.split("x")
                     if (parts.size == 2) {
@@ -155,6 +179,12 @@ class WebcamStreamService : Service(), LifecycleOwner {
             return START_NOT_STICKY
         }
 
+        if (!FocalRoles.canHostStreams) {
+            _startupError.value = "Streaming is only available on the Focal phone app"
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
         val pairingPin = intent?.getStringExtra(EXTRA_PAIRING_PIN) ?: currentPairingPin
         currentPairingPin = pairingPin
 
@@ -163,6 +193,16 @@ class WebcamStreamService : Service(), LifecycleOwner {
 
         val streamModeStr = intent?.getStringExtra(EXTRA_STREAM_MODE) ?: StreamMode.VIDEO_ONLY.name
         val streamMode = try { StreamMode.valueOf(streamModeStr) } catch (_: Exception) { StreamMode.VIDEO_ONLY }
+
+        val streamSourceStr = intent?.getStringExtra(EXTRA_STREAM_SOURCE) ?: StreamSource.CAMERA.name
+        val streamSource = try { StreamSource.valueOf(streamSourceStr) } catch (_: Exception) { StreamSource.CAMERA }
+        val projectionResultCode = intent?.getIntExtra(EXTRA_MEDIA_PROJECTION_RESULT_CODE, 0) ?: 0
+        val projectionResultData = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent?.getParcelableExtra(EXTRA_MEDIA_PROJECTION_RESULT_DATA, Intent::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent?.getParcelableExtra(EXTRA_MEDIA_PROJECTION_RESULT_DATA)
+        }
 
         val rawWidth = intent?.getIntExtra(EXTRA_WIDTH, 1920) ?: 1920
         val rawHeight = intent?.getIntExtra(EXTRA_HEIGHT, 1080) ?: 1080
@@ -175,8 +215,15 @@ class WebcamStreamService : Service(), LifecycleOwner {
             Manifest.permission.CAMERA
         ) == PackageManager.PERMISSION_GRANTED
 
-        if (!hasCameraPermission) {
+        if (streamSource == StreamSource.CAMERA && !hasCameraPermission) {
             _startupError.value = "Camera permission not granted"
+            _isRunning.value = false
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
+        if (streamSource == StreamSource.SCREEN && projectionResultData == null) {
+            _startupError.value = "Screen capture permission not granted"
             _isRunning.value = false
             stopSelf()
             return START_NOT_STICKY
@@ -188,7 +235,8 @@ class WebcamStreamService : Service(), LifecycleOwner {
             Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
 
-        val audioRequested = streamMode == StreamMode.VIDEO_AND_AUDIO && hasMicPermission
+        val audioRequested = (streamMode == StreamMode.VIDEO_AND_AUDIO || streamSource == StreamSource.AUDIO_ONLY) &&
+            hasMicPermission
 
         // Clamped configuration against hardware encoder honoring requested bitrate
         val clamped = DeviceCapabilities.clampConfiguration(rawWidth, rawHeight, rawFps, rawBitrate)
@@ -210,6 +258,9 @@ class WebcamStreamService : Service(), LifecycleOwner {
         val pipelineInitialized = initAndStartPipeline(
             connectionMode = connectionMode,
             streamMode = streamMode,
+            streamSource = streamSource,
+            projectionResultCode = projectionResultCode,
+            projectionResultData = projectionResultData,
             hasMicPermission = hasMicPermission,
             width = clamped.width,
             height = clamped.height,
@@ -230,6 +281,9 @@ class WebcamStreamService : Service(), LifecycleOwner {
     private fun initAndStartPipeline(
         connectionMode: HostConnectionMode,
         streamMode: StreamMode,
+        streamSource: StreamSource,
+        projectionResultCode: Int,
+        projectionResultData: Intent?,
         hasMicPermission: Boolean,
         width: Int,
         height: Int,
@@ -243,7 +297,14 @@ class WebcamStreamService : Service(), LifecycleOwner {
                 pinValidator = { PairingManager.isPinValid(it) }
             )
             transportManager = tm
-            tm.start(connectionMode)
+            tm.refreshSessionKey()
+            tm.start(connectionMode, applicationContext)
+            startHeartbeatLoop(tm)
+            serviceScope.launch {
+                tm.connectedClientsCount.collect { count ->
+                    _connectedClients.value = count
+                }
+            }
 
             if (!tm.isAnyRunning()) {
                 _startupError.value = "Failed to bind network transport"
@@ -252,7 +313,13 @@ class WebcamStreamService : Service(), LifecycleOwner {
 
             // Register mDNS auto-discovery on local Wi-Fi
             if (connectionMode == HostConnectionMode.WIFI) {
-                FocalDiscoveryManager.registerService(applicationContext, port = 8080, pin = PairingManager.currentPin)
+                FocalDiscoveryManager.registerService(
+                    context = applicationContext,
+                    port = 8080,
+                    pin = PairingManager.currentPin,
+                    tlsPort = if (tm.tlsCertificateFingerprint != null) FocalLanTls.DEFAULT_TLS_PORT else null,
+                    tlsFingerprint = tm.tlsCertificateFingerprint
+                )
             }
 
             // 2. Initialize Video Encoder
@@ -266,22 +333,24 @@ class WebcamStreamService : Service(), LifecycleOwner {
                 }
             }
 
-            val encoder = VideoEncoder(
-                width = width,
-                height = height,
-                fps = fps,
-                bitrateMbps = bitrateMbps,
-                listener = encoderListener
-            )
-            videoEncoder = encoder
-            val encoderStarted = encoder.start()
-            if (!encoderStarted) {
-                _startupError.value = "Failed to initialize video encoder"
-                return false
-            }
+            val audioOnly = streamSource == StreamSource.AUDIO_ONLY
 
-            // Connect camera capture pipeline to the H.264 encoder's input Surface
-            CameraCapturePipeline.setEncoderSurface(encoder.inputSurface, width, height)
+            if (!audioOnly) {
+                val encoder = VideoEncoder(
+                    width = width,
+                    height = height,
+                    fps = fps,
+                    bitrateMbps = bitrateMbps,
+                    listener = encoderListener
+                )
+                videoEncoder = encoder
+                val encoderStarted = encoder.start()
+                if (!encoderStarted) {
+                    _startupError.value = "Failed to initialize video encoder"
+                    return false
+                }
+                CameraCapturePipeline.setEncoderSurface(encoder.inputSurface, width, height)
+            }
 
             // 3. Initialize Audio Controller (ONLY if streamMode == VIDEO_AND_AUDIO and permission is granted)
             val audioListener = object : AudioCaptureListener {
@@ -290,14 +359,14 @@ class WebcamStreamService : Service(), LifecycleOwner {
                 }
             }
             audioController = AudioController(audioListener)
-            if (streamMode == StreamMode.VIDEO_AND_AUDIO && hasMicPermission) {
+            if ((streamMode == StreamMode.VIDEO_AND_AUDIO || streamSource == StreamSource.AUDIO_ONLY) && hasMicPermission) {
                 val audioStarted = audioController?.startRecording(hasPermission = true, streamMode = streamMode) == true
                 _isAudioActive.value = audioStarted
             } else {
                 _isAudioActive.value = false
             }
 
-            // 4. Initialize Recovery Manager
+            if (!audioOnly) {
             recoveryManager = RecoveryManager(
                 onRetryCamera = {
                     CameraCapturePipeline.rebind(applicationContext)
@@ -324,33 +393,72 @@ class WebcamStreamService : Service(), LifecycleOwner {
                     }
                 }
             )
+            }
 
-            // 5. Bind camera capture session to service lifecycle
             lifecycleRegistry.currentState = Lifecycle.State.RESUMED
-            CameraCapturePipeline.bindSessionCamera(
-                context = applicationContext,
-                lifecycleOwner = this,
-                isFront = false,
-                width = width,
-                height = height,
-                onFirstFrame = {
-                    // Actual readiness: Transport, encoder, camera bound AND first live frame reached encoder
-                    _isRunning.value = true
-                    updateNotification(
-                        width = width,
-                        height = height,
-                        fps = fps,
-                        mode = connectionMode,
-                        audioEnabled = _isAudioActive.value,
-                        isReady = true
-                    )
-                },
-                onError = { err ->
-                    _startupError.value = "Camera binding failed: ${err.message}"
-                    stopStreaming()
-                    stopSelf()
+
+            if (streamSource == StreamSource.AUDIO_ONLY) {
+                _isRunning.value = true
+                updateNotification(
+                    width = width,
+                    height = height,
+                    fps = fps,
+                    mode = connectionMode,
+                    audioEnabled = _isAudioActive.value,
+                    isReady = true
+                )
+            } else if (streamSource == StreamSource.SCREEN && projectionResultData != null) {
+                val screenStarted = ScreenCapturePipeline.start(
+                    context = applicationContext,
+                    resultCode = projectionResultCode,
+                    resultData = projectionResultData,
+                    encoderSurface = videoEncoder!!.inputSurface,
+                    width = width,
+                    height = height,
+                    onStopped = {
+                        _startupError.value = "Screen capture ended"
+                        stopStreaming()
+                        stopSelf()
+                    }
+                )
+                if (!screenStarted) {
+                    _startupError.value = "Failed to start screen capture"
+                    return false
                 }
-            )
+                _isRunning.value = true
+                updateNotification(
+                    width = width,
+                    height = height,
+                    fps = fps,
+                    mode = connectionMode,
+                    audioEnabled = _isAudioActive.value,
+                    isReady = true
+                )
+            } else {
+                CameraCapturePipeline.bindSessionCamera(
+                    context = applicationContext,
+                    lifecycleOwner = this,
+                    isFront = false,
+                    width = width,
+                    height = height,
+                    onFirstFrame = {
+                        _isRunning.value = true
+                        updateNotification(
+                            width = width,
+                            height = height,
+                            fps = fps,
+                            mode = connectionMode,
+                            audioEnabled = _isAudioActive.value,
+                            isReady = true
+                        )
+                    },
+                    onError = { err ->
+                        _startupError.value = "Camera binding failed: ${err.message}"
+                        stopStreaming()
+                        stopSelf()
+                    }
+                )
+            }
 
             return true
         } catch (t: Throwable) {
@@ -359,12 +467,25 @@ class WebcamStreamService : Service(), LifecycleOwner {
         }
     }
 
+    private fun startHeartbeatLoop(transportManager: TransportManager) {
+        heartbeatJob?.cancel()
+        heartbeatJob = serviceScope.launch {
+            while (isActive) {
+                delay(3000)
+                transportManager.broadcastHeartbeat()
+            }
+        }
+    }
+
     private fun stopStreaming() {
         _isRunning.value = false
         _isAudioActive.value = false
+        heartbeatJob?.cancel()
+        heartbeatJob = null
 
         FocalDiscoveryManager.unregisterService()
 
+        ScreenCapturePipeline.stop()
         CameraCapturePipeline.unbind()
         CameraCapturePipeline.setEncoderSurface(null)
 

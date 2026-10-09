@@ -39,6 +39,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,6 +59,7 @@ import com.focal.android.tv.client.TvStreamClient
 import com.focal.android.tv.client.TvVideoDecoder
 import com.focal.android.tv.discovery.TvDiscoveryManager
 import com.focal.android.tv.model.DiscoveredCamera
+import com.focal.android.ui.receive.ReceivePlaybackCoordinator
 
 @Composable
 fun TvMainScreen(
@@ -71,6 +73,7 @@ fun TvMainScreen(
 ) {
     val discoveredCameras by discoveryManager.discoveredCameras.collectAsState()
     val isScanning by discoveryManager.isScanning.collectAsState()
+    val discoveryError by discoveryManager.discoveryError.collectAsState()
 
     val connectionState by streamClient.connectionState.collectAsState()
     val fps by streamClient.currentFps.collectAsState()
@@ -90,7 +93,14 @@ fun TvMainScreen(
         }
     }
 
-    // When connection is streaming, record active camera
+    LaunchedEffect(connectionState) {
+        ReceivePlaybackCoordinator.isReceivingStream = connectionState == TvClientState.STREAMING
+        if (connectionState == TvClientState.AUTH_FAILED) {
+            activeStreamingCamera?.let { selectedCameraForPin = it }
+            activeStreamingCamera = null
+        }
+    }
+
     if (connectionState == TvClientState.STREAMING && activeStreamingCamera != null) {
         TvPlayerView(
             camera = activeStreamingCamera!!,
@@ -215,7 +225,43 @@ fun TvMainScreen(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 // Connection error banner if any
-                if (errorMessage != null) {
+                if (discoveryError != null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.errorContainer)
+                            .padding(14.dp)
+                    ) {
+                        Text(
+                            text = discoveryError!!,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
+                if (connectionState == TvClientState.AUTH_FAILED && errorMessage != null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.errorContainer)
+                            .padding(14.dp)
+                    ) {
+                        Text(
+                            text = "Pairing failed: $errorMessage",
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
+                if (errorMessage != null && connectionState != TvClientState.AUTH_FAILED) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -234,7 +280,10 @@ fun TvMainScreen(
                 }
 
                 // Connecting indicator
-                if (connectionState == TvClientState.CONNECTING || connectionState == TvClientState.AUTHENTICATING) {
+                if (connectionState == TvClientState.CONNECTING ||
+                    connectionState == TvClientState.AUTHENTICATING ||
+                    connectionState == TvClientState.RECONNECTING
+                ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -247,7 +296,11 @@ fun TvMainScreen(
                             CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.primary)
                             Spacer(modifier = Modifier.width(16.dp))
                             Text(
-                                text = if (connectionState == TvClientState.AUTHENTICATING) "Authenticating pairing PIN..." else "Connecting to camera streamer...",
+                                text = when (connectionState) {
+                                    TvClientState.AUTHENTICATING -> "Authenticating pairing PIN..."
+                                    TvClientState.RECONNECTING -> "Reconnecting to camera streamer..."
+                                    else -> "Connecting to camera streamer..."
+                                },
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface
@@ -294,7 +347,7 @@ fun TvMainScreen(
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Make sure Focal is open and streaming on your phone or PC on the same Wi-Fi network.",
+                                text = "Make sure Focal is open and streaming on your phone on the same Wi-Fi network.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

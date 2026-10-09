@@ -10,6 +10,7 @@ import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
 import com.focal.android.MainActivity
 import com.focal.android.server.WebcamStreamService
+import com.focal.android.stream.StreamSessionController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -44,7 +45,7 @@ class FocalTileService : TileService() {
 
         if (isStreaming) {
             // Stop the webcam stream
-            WebcamStreamService.stop(this)
+            StreamSessionController.stopStream(this)
             updateTileState(false)
         } else {
             // Check Camera permission before starting
@@ -56,7 +57,7 @@ class FocalTileService : TileService() {
             if (hasCameraPermission) {
                 // Start stream session; tile state stays INACTIVE until transport, encoder,
                 // and camera capture have started and the first live frame reaches the encoder.
-                WebcamStreamService.start(this)
+                StreamSessionController.startCameraStream(this)
             } else {
                 // Must not silently request permissions that were never granted.
                 // Open MainActivity so user can grant permissions.

@@ -17,6 +17,7 @@ import com.focal.android.tv.client.TvClientState
 import com.focal.android.tv.client.TvStreamClient
 import com.focal.android.tv.client.TvVideoDecoder
 import com.focal.android.tv.discovery.TvDiscoveryManager
+import com.focal.android.ui.receive.ReceivePlaybackCoordinator
 import com.focal.android.ui.theme.FocalTheme
 
 /**
@@ -69,7 +70,9 @@ class TvActivity : ComponentActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (streamClient.connectionState.value == TvClientState.STREAMING) {
+        if (ReceivePlaybackCoordinator.isReceivingStream ||
+            streamClient.connectionState.value == TvClientState.STREAMING
+        ) {
             enterPipMode()
         }
     }

@@ -148,7 +148,7 @@ class AdbTransport(
                     candidatePin == pairingPinProvider()
                 }
                 if (isValid) {
-                    outputStream.write("AUTH_OK\n".toByteArray(StandardCharsets.UTF_8))
+                    outputStream.write("AUTH_OK ENC1\n".toByteArray(StandardCharsets.UTF_8))
                     outputStream.flush()
 
                     val client = AdbClient(clientId, socket, outputStream, isAuthenticated = true)
@@ -156,11 +156,7 @@ class AdbTransport(
                     clientListener?.onClientAuthenticated(clientId)
 
                     while (isRunning && !socket.isClosed && socket.isConnected) {
-                        val ping = reader.readLine() ?: break
-                        if (ping == "PING") {
-                            outputStream.write("PONG\n".toByteArray(StandardCharsets.UTF_8))
-                            outputStream.flush()
-                        }
+                        reader.readLine() ?: break
                     }
                 } else {
                     outputStream.write("AUTH_ERR Invalid PIN\n".toByteArray(StandardCharsets.UTF_8))

@@ -1,27 +1,25 @@
 package com.focal.android.tv.client
 
 import android.util.Log
-import com.focal.android.data.model.StreamCodec
+import com.focal.android.transport.FocalLanTls
+import com.focal.android.transport.FocalSessionCrypto
 import com.focal.android.transport.PacketType
 import com.focal.android.transport.StreamPacket
+import javax.crypto.SecretKey
 import com.focal.android.tv.model.DiscoveredCamera
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.BufferedInputStream
-import java.io.BufferedReader
 import java.io.InputStream
-import java.io.InputStreamReader
-import java.io.OutputStream
 import java.net.InetSocketAddress
 import java.net.Socket
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -32,7 +30,8 @@ enum class TvClientState {
     STREAMING,
     AUTH_FAILED,
     ERROR,
-    DISCONNECTED
+    DISCONNECTED,
+    RECONNECTING
 }
 
 /**
@@ -41,15 +40,23 @@ enum class TvClientState {
  */
 class TvStreamClient(
     private val videoDecoder: TvVideoDecoder,
-    private val audioPlayer: TvAudioPlayer
+    private val audioPlayer: TvAudioPlayer,
+    private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
 ) {
 
-    private val scope = CoroutineScope(Dispatchers.IO)
     private var clientJob: Job? = null
-    private var pingJob: Job? = null
+    private var reconnectJob: Job? = null
 
     private var activeSocket: Socket? = null
     private val isRunning = AtomicBoolean(false)
+    private var userInitiatedDisconnect = false
+
+    private var lastCamera: DiscoveredCamera? = null
+    private var lastPin: String? = null
+    private var sessionKey: SecretKey? = null
+
+    var autoReconnectEnabled: Boolean = true
+    var maxReconnectAttempts: Int = 5
 
     private val _connectionState = MutableStateFlow(TvClientState.IDLE)
     val connectionState: StateFlow<TvClientState> = _connectionState.asStateFlow()
@@ -73,101 +80,119 @@ class TvStreamClient(
     companion object {
         private const val TAG = "TvStreamClient"
         private const val CONNECT_TIMEOUT_MS = 6000
+        private const val RECONNECT_DELAY_MS = 2500L
     }
 
     fun connect(camera: DiscoveredCamera, pin: String) {
-        disconnect()
+        reconnectJob?.cancel()
+        reconnectJob = null
+        userInitiatedDisconnect = false
+        lastCamera = camera
+        lastPin = pin
+        startSession(camera, pin, isReconnect = false)
+    }
+
+    private fun startSession(camera: DiscoveredCamera, pin: String, isReconnect: Boolean) {
+        clientJob?.cancel()
+        teardownTransportOnly()
         isRunning.set(true)
-        _connectionState.value = TvClientState.CONNECTING
+        _connectionState.value = if (isReconnect) TvClientState.RECONNECTING else TvClientState.CONNECTING
         _errorMessage.value = null
 
         clientJob = scope.launch {
             try {
-                val socket = Socket()
+                val tlsPort = camera.tlsPort
+                val socket = if (tlsPort != null) {
+                    FocalLanTls.clientSocketFactory().createSocket()
+                } else {
+                    Socket()
+                }
                 activeSocket = socket
                 socket.tcpNoDelay = true
                 socket.soTimeout = 12000
-                socket.connect(InetSocketAddress(camera.host, camera.port), CONNECT_TIMEOUT_MS)
+                val connectPort = tlsPort ?: camera.port
+                socket.connect(InetSocketAddress(camera.host, connectPort), CONNECT_TIMEOUT_MS)
 
                 val output = socket.getOutputStream()
                 val rawInput = BufferedInputStream(socket.getInputStream())
 
                 _connectionState.value = TvClientState.AUTHENTICATING
 
-                // 1. Send AUTH handshake
                 val authMsg = "AUTH $pin\n".toByteArray(StandardCharsets.UTF_8)
                 output.write(authMsg)
                 output.flush()
 
-                // Read line response for auth
                 val responseLine = readLineFromStream(rawInput)
-                if (responseLine == null || !responseLine.startsWith("AUTH_OK")) {
+                if (responseLine == null || !responseLine.trim().startsWith("AUTH_OK")) {
                     _connectionState.value = TvClientState.AUTH_FAILED
-                    _errorMessage.value = "Invalid pairing PIN"
-                    disconnect()
+                    _errorMessage.value = if (responseLine?.startsWith("AUTH_ERR") == true) {
+                        "Invalid or expired pairing PIN"
+                    } else {
+                        "Invalid pairing PIN"
+                    }
+                    isRunning.set(false)
+                    closeSocket()
                     return@launch
                 }
 
-                // Auth success
+                sessionKey = FocalSessionCrypto.deriveKey(pin)
                 _connectionState.value = TvClientState.STREAMING
-                videoDecoder.start()
+                videoDecoder.startIfSurfaceReady()
                 audioPlayer.start()
 
-                // Start ping loop for latency tracking
-                startPingLoop(output)
-
-                // 2. Read binary StreamPacket loop
                 readPacketStream(rawInput)
-
             } catch (e: Exception) {
-                if (isRunning.get()) {
+                if (isRunning.get() && !userInitiatedDisconnect) {
                     Log.e(TAG, "Connection error", e)
                     _connectionState.value = TvClientState.ERROR
                     _errorMessage.value = e.localizedMessage ?: "Failed to connect to camera"
+                    scheduleReconnectIfNeeded()
                 }
             } finally {
-                disconnect()
+                if (!userInitiatedDisconnect && _connectionState.value == TvClientState.STREAMING) {
+                    _connectionState.value = TvClientState.DISCONNECTED
+                    _errorMessage.value = "Stream ended"
+                    scheduleReconnectIfNeeded()
+                }
+                teardownTransportOnly()
+            }
+        }
+    }
+
+    private fun scheduleReconnectIfNeeded() {
+        if (userInitiatedDisconnect || !autoReconnectEnabled) return
+        val camera = lastCamera ?: return
+        val pin = lastPin ?: return
+        if (reconnectJob?.isActive == true) return
+
+        reconnectJob = scope.launch {
+            var attempt = 0
+            while (isActive && !userInitiatedDisconnect && attempt < maxReconnectAttempts) {
+                attempt++
+                _connectionState.value = TvClientState.RECONNECTING
+                _errorMessage.value = "Reconnecting ($attempt/$maxReconnectAttempts)…"
+                delay(RECONNECT_DELAY_MS)
+                if (userInitiatedDisconnect) return@launch
+                startSession(camera, pin, isReconnect = true)
+                clientJob?.join()
+                if (_connectionState.value == TvClientState.STREAMING) return@launch
+                if (_connectionState.value == TvClientState.AUTH_FAILED) return@launch
+            }
+            if (!userInitiatedDisconnect && _connectionState.value != TvClientState.STREAMING) {
+                _connectionState.value = TvClientState.ERROR
+                _errorMessage.value = "Could not reconnect to camera"
             }
         }
     }
 
     private fun readPacketStream(input: InputStream) {
-        val headerBuffer = ByteArray(StreamPacket.HEADER_SIZE)
+        val foclInput = FoclPacketInputStream(input)
 
         while (isRunning.get()) {
-            // Read 20-byte header
-            if (!readFully(input, headerBuffer, 0, StreamPacket.HEADER_SIZE)) break
+            val frame = foclInput.readNextPayload() ?: break
 
-            // Verify Magic 'FOCL'
-            if (headerBuffer[0] != 'F'.code.toByte() ||
-                headerBuffer[1] != 'O'.code.toByte() ||
-                headerBuffer[2] != 'C'.code.toByte() ||
-                headerBuffer[3] != 'L'.code.toByte()
-            ) {
-                // If not magic, possibly plain text line or heartbeat response
-                continue
-            }
-
-            val buf = ByteBuffer.wrap(headerBuffer).order(ByteOrder.BIG_ENDIAN)
-            buf.position(4)
-            val version = buf.get()
-            val codecByte = buf.get()
-            val typeCode = buf.get()
-            val flags = buf.get()
-            val timestampUs = buf.long
-            val payloadLen = buf.int
-
-            if (payloadLen < 0 || payloadLen > 5_000_000) {
-                // Invalid payload size, drop connection to avoid memory crash
-                break
-            }
-
-            val payload = ByteArray(payloadLen)
-            if (!readFully(input, payload, 0, payloadLen)) break
-
-            // Update stats
             frameCount++
-            bytesAccumulator += payloadLen + StreamPacket.HEADER_SIZE
+            bytesAccumulator += frame.payload.size + StreamPacket.HEADER_SIZE
             val now = System.currentTimeMillis()
             val elapsed = now - lastMetricsCalcTime
             if (elapsed >= 1000) {
@@ -178,51 +203,31 @@ class TvStreamClient(
                 lastMetricsCalcTime = now
             }
 
-            val packetType = PacketType.fromCode(typeCode)
-            val isKeyframe = (flags.toInt() and StreamPacket.FLAG_KEYFRAME.toInt()) != 0
+            val packetType = PacketType.fromCode(frame.typeCode)
+            val isKeyframe = (frame.flags.toInt() and StreamPacket.FLAG_KEYFRAME.toInt()) != 0
+            val isConfig = (frame.flags.toInt() and StreamPacket.FLAG_CONFIG.toInt()) != 0
+            val isEncrypted = (frame.flags.toInt() and StreamPacket.FLAG_ENCRYPTED.toInt()) != 0
+
+            val payload = if (isEncrypted) {
+                val key = sessionKey ?: continue
+                FocalSessionCrypto.decrypt(key, frame.payload) ?: continue
+            } else {
+                frame.payload
+            }
 
             when (packetType) {
                 PacketType.VIDEO_NAL -> {
-                    videoDecoder.feedH264Nal(payload, isKeyframe, timestampUs)
+                    videoDecoder.feedH264Nal(payload, isKeyframe, frame.timestampUs, isConfig)
                 }
                 PacketType.AUDIO_RAW -> {
                     audioPlayer.playPcm(payload)
                 }
                 PacketType.HEARTBEAT -> {
-                    // Heartbeat ack
+                    _latencyMs.value = frame.timestampUs.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
                 }
-                else -> {
-                    // Metadata or auth packet
-                }
+                else -> Unit
             }
         }
-    }
-
-    private fun startPingLoop(output: OutputStream) {
-        pingJob = scope.launch {
-            val pingBytes = "PING\n".toByteArray(StandardCharsets.UTF_8)
-            while (isActive && isRunning.get()) {
-                kotlinx.coroutines.delay(3000)
-                try {
-                    val start = System.currentTimeMillis()
-                    output.write(pingBytes)
-                    output.flush()
-                    _latencyMs.value = (System.currentTimeMillis() - start).toInt().coerceAtLeast(4)
-                } catch (_: Exception) {
-                    break
-                }
-            }
-        }
-    }
-
-    private fun readFully(input: InputStream, buffer: ByteArray, offset: Int, length: Int): Boolean {
-        var bytesRead = 0
-        while (bytesRead < length) {
-            val count = input.read(buffer, offset + bytesRead, length - bytesRead)
-            if (count < 0) return false
-            bytesRead += count
-        }
-        return true
     }
 
     private fun readLineFromStream(input: InputStream): String? {
@@ -239,26 +244,36 @@ class TvStreamClient(
     }
 
     fun disconnect() {
+        userInitiatedDisconnect = true
+        reconnectJob?.cancel()
+        reconnectJob = null
         isRunning.set(false)
-        pingJob?.cancel()
         clientJob?.cancel()
-        pingJob = null
         clientJob = null
+        teardownTransportOnly()
+        videoDecoder.stop()
+        audioPlayer.stop()
+        _currentFps.value = 0f
+        _currentBitrateMbps.value = 0f
+        _latencyMs.value = 0
+        sessionKey = null
+        if (_connectionState.value != TvClientState.AUTH_FAILED) {
+            _connectionState.value = TvClientState.IDLE
+        }
+        _errorMessage.value = null
+    }
 
+    private fun teardownTransportOnly() {
+        isRunning.set(false)
+        closeSocket()
+    }
+
+    private fun closeSocket() {
         try {
             activeSocket?.close()
         } catch (_: Exception) {
         } finally {
             activeSocket = null
-        }
-
-        videoDecoder.stop()
-        audioPlayer.stop()
-
-        _currentFps.value = 0f
-        _currentBitrateMbps.value = 0f
-        if (_connectionState.value == TvClientState.STREAMING || _connectionState.value == TvClientState.CONNECTING) {
-            _connectionState.value = TvClientState.DISCONNECTED
         }
     }
 }

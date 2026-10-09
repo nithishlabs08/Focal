@@ -3,6 +3,7 @@ package com.focal.android.tv.discovery
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -28,6 +29,9 @@ class TvDiscoveryManager(context: Context) {
     private val _isScanning = MutableStateFlow(false)
     val isScanning: StateFlow<Boolean> = _isScanning.asStateFlow()
 
+    private val _discoveryError = MutableStateFlow<String?>(null)
+    val discoveryError: StateFlow<String?> = _discoveryError.asStateFlow()
+
     private val cameraMap = ConcurrentHashMap<String, DiscoveredCamera>()
     private var discoveryListener: NsdManager.DiscoveryListener? = null
 
@@ -41,7 +45,13 @@ class TvDiscoveryManager(context: Context) {
     }
 
     fun startDiscovery() {
-        if (_isScanning.value || nsdManager == null) return
+        if (_isScanning.value || nsdManager == null) {
+            if (nsdManager == null) {
+                _discoveryError.value = "Network discovery is not available on this device"
+            }
+            return
+        }
+        _discoveryError.value = null
 
         discoveryListener = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(regType: String) {
@@ -65,10 +75,13 @@ class TvDiscoveryManager(context: Context) {
             }
 
             override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
+                Log.e(TAG, "Discovery start failed: error=$errorCode")
                 _isScanning.value = false
+                _discoveryError.value = "Could not scan for cameras (error $errorCode)"
             }
 
             override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {
+                Log.w(TAG, "Discovery stop failed: error=$errorCode")
                 _isScanning.value = false
             }
         }
@@ -134,12 +147,14 @@ class TvDiscoveryManager(context: Context) {
                     val name = resolvedInfo.serviceName
 
                     if (!hostAddress.isNullOrBlank() && port > 0) {
+                        val tlsPort = readTlsPort(resolvedInfo)
                         val friendlyName = name.removePrefix("Focal-").replace("_", " ")
                         val camera = DiscoveredCamera(
                             id = name,
                             name = if (friendlyName.isNotBlank()) friendlyName else "Focal Camera",
                             host = hostAddress,
-                            port = port
+                            port = port,
+                            tlsPort = tlsPort
                         )
                         cameraMap[name] = camera
                         updateList()
@@ -161,5 +176,11 @@ class TvDiscoveryManager(context: Context) {
 
     private fun updateList() {
         _discoveredCameras.value = cameraMap.values.toList().sortedBy { it.name }
+    }
+
+    private fun readTlsPort(resolvedInfo: NsdServiceInfo): Int? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+        val raw = resolvedInfo.attributes["tls_port"] ?: return null
+        return raw.toString(Charsets.UTF_8).toIntOrNull()
     }
 }

@@ -41,6 +41,13 @@ enum class StreamMode {
     VIDEO_AND_AUDIO
 }
 
+/** What the phone sends over the network (camera lens vs device screen). */
+enum class StreamSource(val displayName: String) {
+    CAMERA("Camera"),
+    SCREEN("Screen"),
+    AUDIO_ONLY("Audio")
+}
+
 enum class FlashMode {
     OFF,
     TORCH,

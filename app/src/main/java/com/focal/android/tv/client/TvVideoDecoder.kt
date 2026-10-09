@@ -44,12 +44,24 @@ class TvVideoDecoder(
         surfaceHolder = holder
         if (newSurface == null) {
             stop()
+        } else if (isRunning.get() && !isDecoderConfigured) {
+            initH264Decoder(1920, 1080)
         }
     }
 
     fun start(width: Int = 1920, height: Int = 1080) {
         if (isRunning.getAndSet(true)) return
         initH264Decoder(width, height)
+    }
+
+    /** Starts decoding once a [Surface] is available (TV player attaches surface after connect). */
+    fun startIfSurfaceReady(width: Int = 1920, height: Int = 1080) {
+        if (surface == null) return
+        if (isRunning.get()) {
+            if (!isDecoderConfigured) initH264Decoder(width, height)
+            return
+        }
+        start(width, height)
     }
 
     private fun initH264Decoder(width: Int, height: Int) {
@@ -72,10 +84,17 @@ class TvVideoDecoder(
         }
     }
 
-    fun feedH264Nal(nalBytes: ByteArray, isKeyframe: Boolean, timestampUs: Long) {
+    fun feedH264Nal(
+        nalBytes: ByteArray,
+        isKeyframe: Boolean,
+        timestampUs: Long,
+        isConfig: Boolean = false
+    ) {
+        if (!isRunning.get()) {
+            startIfSurfaceReady()
+        }
         if (!isRunning.get()) return
         val codec = mediaCodec ?: return
-
         try {
             val inputIndex = codec.dequeueInputBuffer(10000L)
             if (inputIndex >= 0) {
@@ -83,7 +102,11 @@ class TvVideoDecoder(
                 inputBuffer.clear()
                 inputBuffer.put(nalBytes)
 
-                val flags = if (isKeyframe) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
+                val flags = when {
+                    isConfig -> MediaCodec.BUFFER_FLAG_CODEC_CONFIG
+                    isKeyframe -> MediaCodec.BUFFER_FLAG_KEY_FRAME
+                    else -> 0
+                }
                 codec.queueInputBuffer(inputIndex, 0, nalBytes.size, timestampUs, flags)
             }
 
