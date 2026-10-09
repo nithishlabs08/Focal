@@ -135,14 +135,13 @@ class TvDiscoveryManager(context: Context) {
             return
         }
 
-        try {
-            manager.resolveService(info, object : NsdManager.ResolveListener {
+        val listener = object : NsdManager.ResolveListener {
                 override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
                     finishResolve()
                 }
 
                 override fun onServiceResolved(resolvedInfo: NsdServiceInfo) {
-                    val hostAddress = resolvedInfo.host?.hostAddress
+                    val hostAddress = resolvedInfo.firstHostAddress()
                     val port = resolvedInfo.port
                     val name = resolvedInfo.serviceName
 
@@ -161,10 +160,31 @@ class TvDiscoveryManager(context: Context) {
                     }
                     finishResolve()
                 }
-            })
+            }
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                manager.resolveService(
+                    info,
+                    NsdManager.PROTOCOL_DNS_SD,
+                    { runnable -> mainHandler.post(runnable) },
+                    listener
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                manager.resolveService(info, listener)
+            }
         } catch (_: Exception) {
             finishResolve()
         }
+    }
+
+    private fun NsdServiceInfo.firstHostAddress(): String? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            return hostAddresses.firstOrNull()?.hostAddress
+        }
+        @Suppress("DEPRECATION")
+        return host?.hostAddress
     }
 
     private fun finishResolve() {
