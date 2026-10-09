@@ -19,7 +19,6 @@ import com.focal.android.data.model.OutputProfile
 import com.focal.android.data.model.StreamCodec
 import com.focal.android.data.model.StreamDiagnostics
 import com.focal.android.data.model.StreamMode
-import android.content.Intent
 import com.focal.android.data.model.StreamSource
 import com.focal.android.stream.StreamSessionController
 import com.focal.android.media.CameraCapturePipeline

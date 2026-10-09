@@ -76,7 +76,7 @@ internal class FoclPacketInputStream(private val input: InputStream) {
     private fun readLongBe(header: ByteArray, offset: Int): Long {
         var value = 0L
         for (i in 0 until 8) {
-            value = (value shl 8) | (header[offset + i].toLong() and 0xFF)
+            value = (value shl 8) or (header[offset + i].toLong() and 0xFFL)
         }
         return value
     }

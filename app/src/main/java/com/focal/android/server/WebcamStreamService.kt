@@ -408,11 +408,16 @@ class WebcamStreamService : Service(), LifecycleOwner {
                     isReady = true
                 )
             } else if (streamSource == StreamSource.SCREEN && projectionResultData != null) {
+                val encoderSurface = videoEncoder?.inputSurface
+                if (encoderSurface == null) {
+                    _startupError.value = "Encoder surface not ready for screen capture"
+                    return false
+                }
                 val screenStarted = ScreenCapturePipeline.start(
                     context = applicationContext,
                     resultCode = projectionResultCode,
                     resultData = projectionResultData,
-                    encoderSurface = videoEncoder!!.inputSurface,
+                    encoderSurface = encoderSurface,
                     width = width,
                     height = height,
                     onStopped = {
