@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.Executor
 
 /**
  * Discovers active Focal camera streamers on the local LAN using Android NSD (mDNS / DNS-SD).
@@ -164,12 +165,8 @@ class TvDiscoveryManager(context: Context) {
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                manager.resolveService(
-                    info,
-                    NsdManager.PROTOCOL_DNS_SD,
-                    { runnable -> mainHandler.post(runnable) },
-                    listener
-                )
+                val executor = Executor { runnable -> mainHandler.post(runnable) }
+                manager.resolveService(info, executor, listener)
             } else {
                 @Suppress("DEPRECATION")
                 manager.resolveService(info, listener)
