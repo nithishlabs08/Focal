@@ -36,12 +36,15 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.net.ServerSocket
 import java.net.Socket
 import java.nio.charset.StandardCharsets
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
 class StreamingArchitectureTest {
+
+    private fun ephemeralPort(): Int = ServerSocket(0).use { it.localPort }
 
     // ==========================================
     // Priority 5 & 7: Packet Format & Protocol Tests
@@ -420,7 +423,7 @@ class StreamingArchitectureTest {
 
     @Test
     fun wifiTransport_rejectsUnauthenticatedHttpStreamAccess() {
-        val testPort = 18090
+        val testPort = ephemeralPort()
         val transport = WifiTransport(port = testPort, pairingPinProvider = { "987654" })
         val challengeLatch = java.util.concurrent.CountDownLatch(1)
 
@@ -456,7 +459,7 @@ class StreamingArchitectureTest {
 
     @Test
     fun wifiTransport_rejectsQueryParameterPinAuthentication() {
-        val testPort = 18091
+        val testPort = ephemeralPort()
         // Even with the correct PIN in query string, URL query params MUST NOT be accepted
         val transport = WifiTransport(port = testPort, pairingPinProvider = { "123456" })
 
@@ -482,7 +485,7 @@ class StreamingArchitectureTest {
 
     @Test
     fun wifiTransport_acceptsHeaderPinAuthentication() {
-        val testPort = 18092
+        val testPort = ephemeralPort()
         val transport = WifiTransport(port = testPort, pairingPinProvider = { "555888" })
         val authLatch = java.util.concurrent.CountDownLatch(1)
 
@@ -518,7 +521,7 @@ class StreamingArchitectureTest {
 
     @Test
     fun wifiTransport_acceptsBearerAuthorizationHeader() {
-        val testPort = 18093
+        val testPort = ephemeralPort()
         val transport = WifiTransport(port = testPort, pairingPinProvider = { "777999" })
         val authLatch = java.util.concurrent.CountDownLatch(1)
 
