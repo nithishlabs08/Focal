@@ -5,11 +5,11 @@
     android:viewportHeight="180">
 
     <path
-        android:fillColor="@color/focal_bg"
+        android:fillColor="@color/focal_bg_dark"
         android:pathData="M0,0h320v180h-320z" />
 
     <path
-        android:fillColor="#141C19"
+        android:fillColor="#FF131E1C"
         android:pathData="M16,16h288a12,12 0 0 1 12,12v124a12,12 0 0 1 -12,12h-288a12,12 0 0 1 -12,-12v-124a12,12 0 0 1 12,-12z" />
 
     <group
@@ -65,7 +65,7 @@
         </group>
         <path
             android:fillColor="@color/focal_accent"
-            android:pathData="M32,26m-6,0a6,6 0 1,1 12,0a6,6 0 1,1 -12,0" />
+            android:pathData="M32,32m-6,0a6,6 0 1,0 12,0a6,6 0 1,0 -12,0" />
     </group>
 
     <path

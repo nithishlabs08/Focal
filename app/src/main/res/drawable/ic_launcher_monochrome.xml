@@ -54,6 +54,6 @@
         </group>
         <path
             android:fillColor="@color/white"
-            android:pathData="M32,26m-6,0a6,6 0 1,1 12,0a6,6 0 1,1 -12,0" />
+            android:pathData="M32,32m-6,0a6,6 0 1,0 12,0a6,6 0 1,0 -12,0" />
     </group>
 </vector>
