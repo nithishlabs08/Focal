@@ -62,7 +62,7 @@ jobs:
         ls -la release-apks/
 
     - name: Upload Split Architecture APKs
-      uses: actions/upload-artifact@v5
+      uses: actions/upload-artifact@v7
       with:
         name: focal-release-apks
         path: release-apks/*.apk
