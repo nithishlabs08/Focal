@@ -30,11 +30,60 @@ class FoclPcmPlayer {
   Future<bool> _spawnPlayer() async {
     try {
       if (Platform.isLinux) {
-        _process = await Process.start(
-          'aplay',
-          ['-f', 'S16_LE', '-r', '48000', '-c', '1', '-q'],
-          mode: ProcessStartMode.normal,
-        );
+        Process? proc;
+        try {
+          proc = await Process.start(
+            'aplay',
+            ['-f', 'S16_LE', '-r', '48000', '-c', '1', '-q'],
+            mode: ProcessStartMode.normal,
+          );
+        } catch (_) {}
+
+        if (proc == null) {
+          try {
+            proc = await Process.start(
+              'pw-play',
+              ['--rate=48000', '--channels=1', '--format=s16', '-'],
+              mode: ProcessStartMode.normal,
+            );
+          } catch (_) {}
+        }
+
+        if (proc == null) {
+          try {
+            proc = await Process.start(
+              'paplay',
+              ['--rate=48000', '--channels=1', '--format=s16le', '--raw'],
+              mode: ProcessStartMode.normal,
+            );
+          } catch (_) {}
+        }
+
+        if (proc == null) {
+          try {
+            proc = await Process.start(
+              'ffplay',
+              [
+                '-nodisp',
+                '-autoexit',
+                '-loglevel',
+                'quiet',
+                '-f',
+                's16le',
+                '-ar',
+                '48000',
+                '-ac',
+                '1',
+                '-i',
+                'pipe:0',
+              ],
+              mode: ProcessStartMode.normal,
+            );
+          } catch (_) {}
+        }
+
+        if (proc == null) return false;
+        _process = proc;
       } else if (Platform.isMacOS) {
         _process = await Process.start(
           'ffplay',

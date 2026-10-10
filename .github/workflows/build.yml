@@ -1,4 +1,4 @@
-name: Android CI
+name: CI & Release (Android & Desktop)
 
 on:
   push:

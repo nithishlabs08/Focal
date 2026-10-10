@@ -41,7 +41,7 @@ flutter build linux --release
 1. Start streaming on the **Focal mobile** app (camera or screen) on the same Wi‑Fi.
 2. Open **Focal Desktop** → pick the sender or **Connect by IP**.
 3. Enter the **4-digit PIN** from the phone.
-4. Video plays **live in the app** (cast-style). Audio plays when the sender includes it (`aplay` on Linux, `ffplay` elsewhere if installed).
+4. Video plays **live in the app** (cast-style). Audio plays when the sender includes it (Linux supports `aplay`, `pw-play`, `paplay`, or `ffplay`; macOS/Windows use `ffplay` if installed).
 
 Optional **Settings → Also save stream to file** writes `~/focal_capture.h264` for VLC while you watch.
 

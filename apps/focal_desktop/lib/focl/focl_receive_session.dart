@@ -51,9 +51,12 @@ class FoclReceiveSession {
 
   var _videoBytes = 0;
   var _audioBytes = 0;
+  var _lastBytes = 0;
   var _frameCount = 0;
   var _lastFpsTick = DateTime.now();
   var _fps = 0.0;
+  var _bitrateMbps = 0.0;
+  var _latencyMs = 0;
 
   Stream<FoclVideoChunk> get videoStream {
     final c = _videoController;
@@ -81,6 +84,9 @@ class FoclReceiveSession {
     FoclStatsCallback? onStats,
   }) async {
     await _closeTransport();
+    if (_videoController == null || _videoController!.isClosed) {
+      _openStreamControllers();
+    }
     _sessionKey = await FoclCrypto.deriveKey(pin);
     _authed = false;
     _authBuffer.clear();
@@ -210,6 +216,9 @@ class FoclReceiveSession {
         audioOut.add(FoclAudioChunk(payload: payload));
       }
       _emitStatsIfDue(onStats);
+    } else if (typeCode == FoclFrame.typeHeartbeat) {
+      _latencyMs = timestampUs.clamp(0, 5000);
+      _emitStatsIfDue(onStats);
     }
   }
 
@@ -218,6 +227,10 @@ class FoclReceiveSession {
     final elapsed = now.difference(_lastFpsTick).inMilliseconds;
     if (elapsed < 1000) return;
     _fps = _frameCount * 1000 / elapsed;
+    final totalBytes = _videoBytes + _audioBytes;
+    final bytesDelta = totalBytes - _lastBytes;
+    _bitrateMbps = (bytesDelta * 8) / (elapsed * 1000);
+    _lastBytes = totalBytes;
     _frameCount = 0;
     _lastFpsTick = now;
     onStats?.call(
@@ -225,6 +238,8 @@ class FoclReceiveSession {
         videoBytes: _videoBytes,
         audioBytes: _audioBytes,
         fps: _fps,
+        bitrateMbps: _bitrateMbps,
+        latencyMs: _latencyMs,
       ),
     );
   }
@@ -251,7 +266,10 @@ class FoclReceiveSession {
     _socket = null;
     _videoBytes = 0;
     _audioBytes = 0;
+    _lastBytes = 0;
     _fps = 0;
+    _bitrateMbps = 0;
+    _latencyMs = 0;
     _frameCount = 0;
     _authed = false;
     _authCompleter = null;

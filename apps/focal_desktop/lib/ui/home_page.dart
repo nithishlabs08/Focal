@@ -306,7 +306,7 @@ class _HomePageState extends State<HomePage> {
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Row(
         children: [
-          if (!sizing.isMobile)
+          if (!sizing.isMobile && !_inSession)
             NavigationRail(
               extended: extendRail,
               backgroundColor: cs.surfaceContainerLow,

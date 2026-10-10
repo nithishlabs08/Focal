@@ -73,7 +73,7 @@ flutter run -d linux
 flutter build linux --release
 ```
 
-CI: `.github/workflows/build.yml` builds Android APKs plus Linux `.deb`/`.rpm` (job `desktop-linux`) and publishes one GitHub Release on `main`. `.github/workflows/flutter-desktop.yml` runs the same desktop packaging on PRs that touch `apps/focal_desktop/**`.
+CI: Single unified workflow `.github/workflows/build.yml` builds Android APKs plus Linux `.deb`/`.rpm` (job `desktop-linux`) and publishes one GitHub Release on `main`.
 
 ## Shared protocol rules
 

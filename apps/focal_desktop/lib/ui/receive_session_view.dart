@@ -132,8 +132,10 @@ class ReceiveSessionView extends StatelessWidget {
           const SizedBox(height: 8),
           if (stats != null && stats!.fps > 0)
             Text(
-              '${stats!.fps.toStringAsFixed(1)} fps · '
-              '${(stats!.videoBytes / (1024 * 1024)).toStringAsFixed(2)} MB video',
+              '${stats!.fps.toStringAsFixed(1)} fps'
+              '${stats!.bitrateMbps > 0 ? " · ${stats!.bitrateMbps.toStringAsFixed(2)} Mbps" : ""}'
+              ' · ${(stats!.videoBytes / (1024 * 1024)).toStringAsFixed(2)} MB'
+              '${stats!.latencyMs > 0 ? " · ${stats!.latencyMs} ms" : ""}',
               style: theme.textTheme.labelLarge?.copyWith(
                 fontFamily: 'monospace',
               ),

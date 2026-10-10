@@ -42,4 +42,25 @@ void main() {
     await audioSub.cancel();
     await session.disconnect();
   });
+
+  test('handles heartbeat frames cleanly', () async {
+    final session = FoclReceiveSession();
+    session.feedFrame(
+      const FoclFrame(
+        typeCode: FoclFrame.typeHeartbeat,
+        flags: 0,
+        timestampUs: 42,
+        payload: [],
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await session.disconnect();
+  });
+
+  test('stream getters remain safe after disconnect', () async {
+    final session = FoclReceiveSession();
+    await session.disconnect();
+    expect(session.videoStream, isNotNull);
+    expect(session.audioStream, isNotNull);
+  });
 }
