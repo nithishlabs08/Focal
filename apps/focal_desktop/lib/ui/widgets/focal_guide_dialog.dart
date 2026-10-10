@@ -15,8 +15,8 @@ Future<void> showReceiveGuide(BuildContext context) {
           '1. On your phone, open Focal → Send and start Camera, Screen, or Audio.\n'
           '2. Wait for your phone under Nearby devices on this tab.\n'
           '3. Tap it and enter the 4-digit PIN from the phone.\n'
-          '4. Video plays live in this app (same idea as Receive on your phone).\n'
-          'Optional: Settings → also save to ~/focal_capture.h264 for VLC.\n\n'
+          '4. Video plays live in this app over FOCL (same idea as Receive on your phone).\n'
+          'Optional: Settings → also save to ~/focal_capture.h264 for VLC/archive.\n\n'
           'Same Wi‑Fi only. Turn off VPN or allow local/LAN traffic in your VPN app.\n'
           'Use Connect by IP if the phone does not appear.',
           style: TextStyle(fontSize: FocalType.body, height: 1.5),

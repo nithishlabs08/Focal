@@ -33,10 +33,10 @@ class _HomePageState extends State<HomePage> {
   FoclReceiveStats? _stats;
   String? _statusMessage;
   String? _outputPath;
-  bool _connecting = false;
   bool _useTls = false;
   bool _hasError = false;
   bool _receiveMuted = false;
+  FocalReceivePhase _receivePhase = FocalReceivePhase.idle;
   DiscoveredSender? _activeSender;
   int _railIndex = 0;
   late final PageController _pageController;
@@ -55,6 +55,21 @@ class _HomePageState extends State<HomePage> {
     });
     _host.onStateChanged = (s) {
       if (mounted) setState(() => _hostState = s);
+    };
+    _receiver.onPhaseChanged = (phase) {
+      if (!mounted) return;
+      setState(() {
+        _receivePhase = phase;
+        if (phase == FocalReceivePhase.error) {
+          _hasError = true;
+          _statusMessage = _receiver.lastError;
+        } else if (phase == FocalReceivePhase.streaming) {
+          _hasError = false;
+        } else if (phase == FocalReceivePhase.reconnecting) {
+          _statusMessage = _receiver.lastError;
+        }
+        _outputPath = _receiver.recordingPath;
+      });
     };
   }
 
@@ -139,20 +154,20 @@ class _HomePageState extends State<HomePage> {
     final pin = await showPinDialog(context, _senderLabel(sender));
     if (pin == null || pin.length < 4) return;
 
+    final saveFile = _prefs?.saveRecordingToFile ?? false;
     final home = Platform.environment['HOME'] ?? Directory.current.path;
-    final out = '$home/focal_capture.h264';
+    final out = saveFile ? '$home/focal_capture.h264' : null;
 
     setState(() {
-      _connecting = true;
       _hasError = false;
       _statusMessage = null;
       _activeSender = sender;
       _outputPath = out;
       _stats = null;
       _railIndex = 0;
+      _receivePhase = FocalReceivePhase.connecting;
     });
 
-    final saveFile = _prefs?.saveRecordingToFile ?? false;
     try {
       await _receiver.connect(
         host: sender.host,
@@ -163,25 +178,25 @@ class _HomePageState extends State<HomePage> {
         outputH264Path: out,
         onPlaybackState: (playing) {
           if (mounted && playing) {
-            setState(() => _connecting = false);
+            setState(() => _receivePhase = FocalReceivePhase.streaming);
           }
         },
         onStats: (s) {
-          if (mounted) {
-            setState(() {
-              _stats = s;
-              _connecting = false;
-            });
-          }
+          if (mounted) setState(() => _stats = s);
         },
       );
-      if (mounted) setState(() => _connecting = false);
+      if (mounted) {
+        setState(() {
+          _outputPath = _receiver.recordingPath;
+          _receivePhase = _receiver.phase;
+        });
+      }
     } on FoclAuthException catch (e) {
       if (mounted) {
         setState(() {
-          _connecting = false;
           _hasError = true;
           _statusMessage = e.message;
+          _receivePhase = FocalReceivePhase.error;
           _activeSender = null;
         });
         _showError('Pairing failed: ${e.message}');
@@ -189,9 +204,9 @@ class _HomePageState extends State<HomePage> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _connecting = false;
           _hasError = true;
           _statusMessage = e.toString();
+          _receivePhase = FocalReceivePhase.error;
           _activeSender = null;
         });
         _showError('$e');
@@ -216,8 +231,9 @@ class _HomePageState extends State<HomePage> {
       _statusMessage = null;
       _stats = null;
       _hasError = false;
-      _connecting = false;
       _receiveMuted = false;
+      _receivePhase = FocalReceivePhase.idle;
+      _outputPath = null;
     });
   }
 
@@ -244,13 +260,18 @@ class _HomePageState extends State<HomePage> {
     if (_inSession && _activeSender != null) {
       return ReceiveSessionView(
         sender: _activeSender!.copyWith(name: _senderLabel(_activeSender!)),
-        connecting: _connecting,
-        errorMessage: _hasError ? _statusMessage : null,
+        phase: _receivePhase,
+        errorMessage: (_hasError ||
+                _receivePhase == FocalReceivePhase.reconnecting ||
+                _receivePhase == FocalReceivePhase.error)
+            ? _statusMessage
+            : null,
         stats: _stats,
         outputPath: _outputPath,
         videoController: _receiver.videoController,
         recordingToFile: _receiver.isRecordingToFile,
         isMuted: _receiveMuted,
+        audioAvailable: _receiver.audioAvailable,
         onToggleMute: () {
           final muted = _receiver.toggleMute();
           setState(() => _receiveMuted = muted);

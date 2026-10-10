@@ -124,11 +124,10 @@ class SettingsView extends StatelessWidget {
         const SizedBox(height: 24),
         _sectionTitle(context, 'About'),
         Text(
-          'Focal is not Miracast — it sends a live camera/screen feed over your Wi‑Fi '
-          '(FOCL / HTTP), not wireless display mirroring. Receive plays video in this app; '
-          'Focal on your phone does the same in the Receive tab.\n\n'
-          'Focal Desktop can also share '
-          'this computer’s screen on your LAN.',
+          'Focal is not Miracast — it is paired app-to-app live streaming over your LAN '
+          '(FOCL). Desktop Receive decodes FOCL in-process (same idea as Receive on your phone). '
+          'The phone’s HTTP /stream.h264 URL is only for external tools like VLC.\n\n'
+          'Focal Desktop can also share this computer’s screen on your LAN.',
           style: theme.textTheme.bodyMedium?.copyWith(
             color: cs.onSurfaceVariant,
             height: 1.5,

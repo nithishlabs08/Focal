@@ -48,6 +48,7 @@ class FoclReceiveSession {
   final _authBuffer = <int>[];
   var _authed = false;
   Completer<void>? _authCompleter;
+  Completer<void>? _transportDone;
 
   var _videoBytes = 0;
   var _audioBytes = 0;
@@ -76,6 +77,13 @@ class FoclReceiveSession {
 
   bool get isConnected => _socket != null && _authed;
 
+  /// Completes when the FOCL TCP session ends (or [disconnect] is called).
+  Future<void> get done {
+    final c = _transportDone;
+    if (c == null) return Future.value();
+    return c.future;
+  }
+
   Future<void> connect({
     required String host,
     required int port,
@@ -91,6 +99,7 @@ class FoclReceiveSession {
     _authed = false;
     _authBuffer.clear();
     _authCompleter = Completer<void>();
+    _transportDone = Completer<void>();
 
     final socket = await Socket.connect(host, port, timeout: const Duration(seconds: 8));
     Socket active = socket;
@@ -118,11 +127,13 @@ class FoclReceiveSession {
       },
       onDone: () async {
         await _flushDecrypt();
+        _completeTransportDone();
       },
       onError: (_) {
         if (_authCompleter != null && !_authCompleter!.isCompleted) {
           _authCompleter!.completeError(FoclAuthException('socket error'));
         }
+        _completeTransportDone();
       },
       cancelOnError: true,
     );
@@ -256,6 +267,13 @@ class FoclReceiveSession {
     _audioController = StreamController<FoclAudioChunk>.broadcast();
   }
 
+  void _completeTransportDone() {
+    final c = _transportDone;
+    if (c != null && !c.isCompleted) {
+      c.complete();
+    }
+  }
+
   Future<void> _closeTransport() async {
     await _sub?.cancel();
     _sub = null;
@@ -273,6 +291,7 @@ class FoclReceiveSession {
     _frameCount = 0;
     _authed = false;
     _authCompleter = null;
+    _completeTransportDone();
   }
 
   Future<void> disconnect() async {
