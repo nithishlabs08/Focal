@@ -80,13 +80,13 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun pairingCode_regeneratesValid6DigitCode() {
+    fun pairingCode_regeneratesValidPin() {
         val viewModel = FocalViewModel()
-        assertEquals(6, viewModel.uiState.value.pairingCode.length)
+        assertEquals(PairingManager.PIN_LENGTH, viewModel.uiState.value.pairingCode.length)
 
         viewModel.regeneratePairingCode()
         val newCode = viewModel.uiState.value.pairingCode
-        assertEquals(6, newCode.length)
+        assertEquals(PairingManager.PIN_LENGTH, newCode.length)
         assertTrue(newCode.all { it.isDigit() })
     }
 

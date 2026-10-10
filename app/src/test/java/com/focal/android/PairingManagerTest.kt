@@ -23,9 +23,9 @@ class PairingManagerTest {
     }
 
     @Test
-    fun generateNewPin_returnsSixDigits() {
+    fun generateNewPin_returnsValidPinDigits() {
         val pin = PairingManager.generateNewPin()
-        assertEquals(6, pin.length)
+        assertEquals(PairingManager.PIN_LENGTH, pin.length)
         assertTrue(pin.all { it.isDigit() })
         assertTrue(PairingManager.isPinValid(pin))
     }

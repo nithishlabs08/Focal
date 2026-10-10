@@ -417,7 +417,7 @@ class StreamingArchitectureTest {
 
         // Regenerate new pin
         val generated = PairingManager.generateNewPin(validityMs = 60000)
-        assertEquals(6, generated.length)
+        assertEquals(PairingManager.PIN_LENGTH, generated.length)
         assertTrue(PairingManager.isPinValid(generated))
     }
 
