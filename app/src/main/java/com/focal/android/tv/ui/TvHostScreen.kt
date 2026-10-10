@@ -1,6 +1,7 @@
 package com.focal.android.tv.ui
 
 import android.Manifest
+import android.app.Activity
 import android.media.projection.MediaProjectionManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -33,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -78,8 +80,9 @@ fun TvHostScreen(
     val screenCaptureLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-            hostViewModel.startScreenStream(context, result.resultCode, result.data)
+        val data = result.data
+        if (result.resultCode == Activity.RESULT_OK && data != null) {
+            hostViewModel.startScreenStream(context, result.resultCode, data)
         } else {
             Toast.makeText(context, "Screen capture permission denied", Toast.LENGTH_SHORT).show()
         }

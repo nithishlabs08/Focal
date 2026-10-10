@@ -152,7 +152,8 @@ fun TvMainScreen(
                         discoveryManager.stopDiscovery()
                         discoveryManager.startDiscovery()
                     },
-                    onCameraSelected = { selectedCameraForPin = it }
+                    onCameraSelected = { selectedCameraForPin = it },
+                    vpnBlocksLan = vpnBlocksLan
                 )
             }
         }
@@ -192,6 +193,7 @@ private fun TvReceiveBrowseContent(
     onConnectByIp: () -> Unit,
     onRefreshDiscovery: () -> Unit,
     onCameraSelected: (DiscoveredCamera) -> Unit,
+    vpnBlocksLan: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     TvBrowseScaffold(
