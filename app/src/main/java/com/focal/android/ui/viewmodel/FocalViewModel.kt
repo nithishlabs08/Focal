@@ -375,7 +375,7 @@ class FocalViewModel : ViewModel() {
         selectProfile(target)
     }
 
-    fun flipCamera(context: Context) {
+    fun flipCamera(context: Context? = null) {
         val nextIsFront = !_uiState.value.selectedSensor.isFront
         _uiState.update { state ->
             val nextSensor = if (nextIsFront) {
@@ -387,7 +387,9 @@ class FocalViewModel : ViewModel() {
             }
             state.copy(selectedSensor = nextSensor)
         }
-        CameraCapturePipeline.switchCamera(context, _uiState.value.selectedSensor.isFront)
+        if (context != null) {
+            CameraCapturePipeline.switchCamera(context, _uiState.value.selectedSensor.isFront)
+        }
     }
 
     fun setShowDeviceSettings(show: Boolean) {
