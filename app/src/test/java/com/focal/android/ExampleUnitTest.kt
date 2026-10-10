@@ -11,6 +11,7 @@ import com.focal.android.media.DeviceCapabilities
 import com.focal.android.media.RecoveryManager
 import com.focal.android.transport.FocalLanNetwork
 import com.focal.android.transport.PacketType
+import com.focal.android.transport.PairingManager
 import com.focal.android.transport.StreamPacket
 import com.focal.android.transport.TransportManager
 import com.focal.android.ui.viewmodel.FocalViewModel
