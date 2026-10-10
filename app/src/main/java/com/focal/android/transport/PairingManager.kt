@@ -6,10 +6,12 @@ package com.focal.android.transport
  */
 object PairingManager {
 
+    const val PIN_LENGTH = 4
+
     const val DEFAULT_VALIDITY_DURATION_MS = 10 * 60 * 1000L // 10 minutes
 
     @Volatile
-    var currentPin: String = "849207"
+    var currentPin: String = "8492"
         private set
 
     @Volatile
@@ -17,7 +19,7 @@ object PairingManager {
         private set
 
     fun generateNewPin(validityMs: Long = DEFAULT_VALIDITY_DURATION_MS): String {
-        val newPin = (100000..999999).random().toString()
+        val newPin = (1000..9999).random().toString()
         currentPin = newPin
         pinExpiryEpochMs = System.currentTimeMillis() + validityMs
         return newPin

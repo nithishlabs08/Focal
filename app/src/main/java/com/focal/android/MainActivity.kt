@@ -29,6 +29,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -61,7 +62,10 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -86,7 +90,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.focal.android.data.model.FocalAppMode
+import com.focal.android.FocalRoles
+import com.focal.android.ui.navigation.MobileTab
+import com.focal.android.ui.settings.MobileSettingsScreen
 import com.focal.android.data.model.HostConnectionMode
 import com.focal.android.data.model.StreamMode
 import com.focal.android.data.model.StreamSource
@@ -97,6 +103,8 @@ import com.focal.android.tv.client.TvVideoDecoder
 import com.focal.android.tv.discovery.TvDiscoveryManager
 import com.focal.android.ui.receive.MobileReceiveScreen
 import com.focal.android.ui.receive.ReceivePlaybackCoordinator
+import com.focal.android.settings.AppThemeMode
+import com.focal.android.settings.FocalDevicePreferences
 import com.focal.android.ui.components.CameraControlBar
 import com.focal.android.ui.components.CameraViewfinder
 import com.focal.android.ui.components.FocalTopBar
@@ -115,12 +123,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            FocalTheme {
-                FocalApp(
-                    isPipMode = isPipMode,
-                    onEnterReceivePip = { enterReceivePictureInPicture() }
-                )
-            }
+            FocalApp(
+                isPipMode = isPipMode,
+                onEnterReceivePip = { enterReceivePictureInPicture() }
+            )
         }
     }
 
@@ -160,7 +166,38 @@ fun FocalApp(
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
-    var appMode by rememberSaveable { mutableStateOf(FocalAppMode.SEND) }
+    var mobileTab by rememberSaveable { mutableStateOf(MobileTab.SEND) }
+
+    val useDarkTheme = when (uiState.themeMode) {
+        AppThemeMode.SYSTEM -> isSystemInDarkTheme()
+        AppThemeMode.LIGHT -> false
+        AppThemeMode.DARK -> true
+    }
+
+    FocalTheme(darkTheme = useDarkTheme) {
+        FocalAppContent(
+            viewModel = viewModel,
+            uiState = uiState,
+            context = context,
+            mobileTab = mobileTab,
+            onMobileTabChange = { mobileTab = it },
+            isPipMode = isPipMode,
+            onEnterReceivePip = onEnterReceivePip
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FocalAppContent(
+    viewModel: FocalViewModel,
+    uiState: com.focal.android.ui.viewmodel.FocalUiState,
+    context: android.content.Context,
+    mobileTab: MobileTab,
+    onMobileTabChange: (MobileTab) -> Unit,
+    isPipMode: Boolean,
+    onEnterReceivePip: () -> Unit
+) {
 
     val receiveDiscovery = remember { TvDiscoveryManager(context.applicationContext) }
     val receiveVideoDecoder = remember { TvVideoDecoder() }
@@ -169,10 +206,19 @@ fun FocalApp(
         TvStreamClient(receiveVideoDecoder, receiveAudioPlayer)
     }
 
-    LaunchedEffect(appMode) {
-        if (appMode == FocalAppMode.SEND) {
+    LaunchedEffect(mobileTab) {
+        if (mobileTab == MobileTab.SEND) {
             receiveStreamClient.disconnect()
             ReceivePlaybackCoordinator.isReceivingStream = false
+        }
+    }
+
+    val availableStreamSources = remember {
+        StreamSource.entries.filter { source ->
+            when (source) {
+                StreamSource.CAMERA -> FocalRoles.canHostCameraStream
+                StreamSource.SCREEN, StreamSource.AUDIO_ONLY -> FocalRoles.canHostScreenOrAudioStream
+            }
         }
     }
 
@@ -251,17 +297,36 @@ fun FocalApp(
         topBar = {
             FocalTopBar(
                 title = "Focal",
-                subtitle = when (appMode) {
-                    FocalAppMode.RECEIVE -> "Watch a Focal sender on Wi‑Fi"
-                    FocalAppMode.SEND -> if (uiState.isStreaming) {
-                        "${uiState.streamSource.displayName} Live • $streamDurationText"
+                subtitle = when (mobileTab) {
+                    MobileTab.RECEIVE -> "Watch a sender on your network"
+                    MobileTab.SEND -> if (uiState.isStreaming) {
+                        "${uiState.streamSource.displayName} live • $streamDurationText"
                     } else {
-                        "Choose Camera, Screen, or Audio"
+                        "Share camera, screen, or audio"
                     }
+                    MobileTab.SETTINGS -> "Device & appearance"
                 },
                 showBack = false,
-                deviceIp = uiState.deviceIp
+                deviceIp = if (mobileTab == MobileTab.SEND) uiState.deviceIp else "",
+                onOpenSettings = null
             )
+        },
+        bottomBar = {
+            NavigationBar {
+                MobileTab.entries.forEach { tab ->
+                    NavigationBarItem(
+                        selected = mobileTab == tab,
+                        onClick = { onMobileTabChange(tab) },
+                        icon = {
+                            Icon(
+                                imageVector = tab.icon,
+                                contentDescription = tab.label
+                            )
+                        },
+                        label = { Text(tab.label) }
+                    )
+                }
+            }
         }
     ) { innerPadding ->
         Column(
@@ -270,45 +335,42 @@ fun FocalApp(
                 .padding(innerPadding)
                 .navigationBarsPadding()
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FocalAppMode.entries.forEach { mode ->
-                    val selected = appMode == mode
-                    Button(
-                        onClick = { appMode = mode },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (selected) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.surfaceContainerHigh
-                            }
-                        ),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(
-                            text = mode.displayName,
-                            color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                }
+            if (uiState.vpnMayBlockLocalStreaming && mobileTab != MobileTab.SETTINGS) {
+                Text(
+                    text = "VPN is on — turn it off or allow local/LAN traffic so Focal can reach devices on Wi‑Fi.",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
             }
 
-            if (appMode == FocalAppMode.RECEIVE) {
+            when (mobileTab) {
+                MobileTab.RECEIVE -> {
                 MobileReceiveScreen(
                     discoveryManager = receiveDiscovery,
                     streamClient = receiveStreamClient,
                     videoDecoder = receiveVideoDecoder,
                     audioPlayer = receiveAudioPlayer,
+                    deviceDisplayName = uiState.deviceDisplayName.ifBlank {
+                        FocalDevicePreferences.defaultDeviceName()
+                    },
+                    deviceIp = uiState.deviceIp,
                     isPipMode = isPipMode,
                     onEnterPip = onEnterReceivePip,
                     modifier = Modifier.fillMaxSize()
                 )
-            } else {
+                }
+                MobileTab.SETTINGS -> {
+                    MobileSettingsScreen(
+                        deviceName = uiState.deviceDisplayName,
+                        themeMode = uiState.themeMode,
+                        deviceIp = uiState.deviceIp,
+                        onSaveDeviceName = { viewModel.saveDeviceName(context, it) },
+                        onThemeModeSelected = { viewModel.saveThemeMode(context, it) },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+                MobileTab.SEND -> {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -317,43 +379,59 @@ fun FocalApp(
                 .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // ==========================================
-            // 1. Camera Viewfinder (16:9 Clean Preview)
-            // ==========================================
-            CameraViewfinder(
-                hasCameraPermission = uiState.isCameraPermissionGranted,
-                isFrontCamera = uiState.selectedSensor.isFront,
-                rotationDegrees = uiState.rotationDegrees,
-                isLiveStreaming = uiState.isStreaming,
-                showGridOverlay = uiState.showGridOverlay,
-                onRequestPermission = {
-                    permissionsLauncher.launch(
-                        arrayOf(
-                            Manifest.permission.CAMERA,
-                            Manifest.permission.RECORD_AUDIO
+            if (uiState.streamSource == StreamSource.CAMERA) {
+                CameraViewfinder(
+                    hasCameraPermission = uiState.isCameraPermissionGranted,
+                    isFrontCamera = uiState.selectedSensor.isFront,
+                    rotationDegrees = uiState.rotationDegrees,
+                    isLiveStreaming = uiState.isStreaming,
+                    showGridOverlay = uiState.showGridOverlay,
+                    onRequestPermission = {
+                        permissionsLauncher.launch(
+                            arrayOf(
+                                Manifest.permission.CAMERA,
+                                Manifest.permission.RECORD_AUDIO
+                            )
                         )
-                    )
-                },
-                modifier = Modifier.fillMaxWidth()
-            )
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
 
-            // ==========================================
-            // 2. Camera Controls Bar (Under Preview)
-            // ==========================================
-            CameraControlBar(
-                isFrontCamera = uiState.selectedSensor.isFront,
-                flashMode = uiState.flashMode,
-                supportsFlash = uiState.selectedSensor.supportsTorch,
-                showGrid = uiState.showGridOverlay,
-                rotationDegrees = uiState.rotationDegrees,
-                exposureCompensation = uiState.exposureCompensation,
-                onFlipCamera = { viewModel.flipCamera() },
-                onCycleFlashMode = { viewModel.cycleFlashMode() },
-                onToggleGrid = { viewModel.toggleGridOverlay() },
-                onRotate90 = { viewModel.rotate90() },
-                onCycleExposure = { viewModel.cycleExposure() },
-                modifier = Modifier.fillMaxWidth()
-            )
+                CameraControlBar(
+                    isFrontCamera = uiState.selectedSensor.isFront,
+                    flashMode = uiState.flashMode,
+                    supportsFlash = uiState.selectedSensor.supportsTorch,
+                    showGrid = uiState.showGridOverlay,
+                    rotationDegrees = uiState.rotationDegrees,
+                    exposureCompensation = uiState.exposureCompensation,
+                    onFlipCamera = { viewModel.flipCamera(context) },
+                    onCycleFlashMode = { viewModel.cycleFlashMode() },
+                    onToggleGrid = { viewModel.toggleGridOverlay() },
+                    onRotate90 = { viewModel.rotate90() },
+                    onCycleExposure = { viewModel.cycleExposure() },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 9f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = when (uiState.streamSource) {
+                            StreamSource.SCREEN -> "Screen capture — tap Start to share your display"
+                            StreamSource.AUDIO_ONLY -> "Microphone only — no camera preview"
+                            else -> ""
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(24.dp)
+                    )
+                }
+            }
 
             // ==========================================
             // 2b. Send source: Camera / Screen / Audio
@@ -362,7 +440,7 @@ fun FocalApp(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                StreamSource.entries.forEach { source ->
+                availableStreamSources.forEach { source ->
                     val selected = uiState.streamSource == source
                     Button(
                         onClick = {
@@ -402,7 +480,16 @@ fun FocalApp(
                         viewModel.stopStreaming(context)
                     } else when (uiState.streamSource) {
                         StreamSource.SCREEN -> {
-                            screenCaptureLauncher.launch(projectionManager.createScreenCaptureIntent())
+                            val mgr = projectionManager
+                            if (mgr == null) {
+                                Toast.makeText(
+                                    context,
+                                    "Screen capture is not available on this device",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            } else {
+                                screenCaptureLauncher.launch(mgr.createScreenCaptureIntent())
+                            }
                         }
                         StreamSource.AUDIO_ONLY -> {
                             if (!uiState.isMicPermissionGranted) {
@@ -926,6 +1013,7 @@ fun FocalApp(
                 }
             }
         }
+                }
             }
         }
     }
@@ -950,6 +1038,7 @@ fun FocalApp(
             onDismissRequest = { viewModel.setShowProfilePicker(false) }
         )
     }
+
 }
 
 @Composable

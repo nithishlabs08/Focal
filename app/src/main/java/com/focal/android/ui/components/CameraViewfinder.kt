@@ -58,7 +58,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.focal.android.data.model.FlashMode
 import com.focal.android.media.CameraCapturePipeline
-import com.focal.android.ui.theme.LocalSendDarkBackground
 import com.focal.android.server.CameraStreamBroadcaster
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -88,9 +87,9 @@ fun CameraViewfinder(
         }
     }
 
-    LaunchedEffect(isFrontCamera) {
+    LaunchedEffect(isFrontCamera, hasCameraPermission) {
         if (hasCameraPermission && isCameraBound) {
-            CameraCapturePipeline.rebind(context)
+            CameraCapturePipeline.switchCamera(context, isFrontCamera)
         }
     }
 
@@ -105,7 +104,7 @@ fun CameraViewfinder(
             .fillMaxWidth()
             .aspectRatio(16f / 9f)
             .clip(RoundedCornerShape(18.dp))
-            .background(LocalSendDarkBackground)
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .testTag("camera_viewfinder_container"),
         contentAlignment = Alignment.Center
     ) {

@@ -10,8 +10,11 @@ on:
 permissions:
   contents: write
 
+env:
+  RELEASE_TAG: v1.1.0
+
 jobs:
-  build:
+  android:
     runs-on: ubuntu-latest
 
     steps:
@@ -61,40 +64,110 @@ jobs:
         find app/build/outputs/apk -name "*release*.apk" -exec cp {} release-apks/ \;
         ls -la release-apks/
 
-    - name: Upload Split Architecture APKs
+    - name: Upload Release APKs
       uses: actions/upload-artifact@v7
       with:
         name: focal-release-apks
         path: release-apks/*.apk
 
-    - name: Publish GitHub Release
-      if: github.ref == 'refs/heads/main'
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        gh release delete v1.1.0 --yes || true
-        gh release create v1.1.0 release-apks/*.apk \
-          --title "Focal v1.1.0 (Mobile Streamer & Android TV Viewer)" \
-          --notes "### Focal v1.1.0 Release (Mobile & Android TV)
+  desktop-linux:
+    runs-on: ubuntu-latest
 
-          #### 📱 Focal Mobile (Camera Streamer)
-          *Turn your phone or tablet into a high-definition webcam for PC & TV.*
-          - **app-mobile-arm64-v8a-release.apk**: Modern 64-bit ARM phones (Pixel, Galaxy, OnePlus, Xiaomi)
-          - **app-mobile-armeabi-v7a-release.apk**: 32-bit ARM phones
-          - **app-mobile-universal-release.apk**: Universal mobile APK
-          - **app-mobile-x86_64-release.apk**: 64-bit Android emulators
-          - **app-mobile-x86-release.apk**: 32-bit Android emulators
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v5
 
-          #### 📺 Focal TV (Big-Screen Viewer & Monitor)
-          *Stream your phone's camera live to your Android TV or tablet screen.*
-          - **app-tv-armeabi-v7a-release.apk**: Chromecast with Google TV, Fire TV Stick 4K, Xiaomi TV Box
-          - **app-tv-arm64-v8a-release.apk**: Nvidia Shield TV, Sony Bravia, premium Google TVs
-          - **app-tv-universal-release.apk**: Universal TV & Tablet APK (works on any Android TV or tablet)
-          - **app-tv-x86_64-release.apk**: Android TV emulators
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang cmake ninja-build pkg-config \
+            libgtk-3-dev libblkid-dev liblzma-dev libsecret-1-dev \
+            librsvg2-bin rpm \
+            dpkg-dev
 
-          #### Features & Highlights
-          - **Dual-Flavor Architecture**: Camera hosting on mobile only; shared FOCL transport, discovery, and screen/audio host on all flavors.
-          - **Zero-Config mDNS Discovery**: Instant LAN auto-discovery with '_focal._tcp.' and remote-friendly 6-digit PIN pairing.
-          - **Android TV Leanback Banner**: Native home screen launcher icon and full D-Pad remote navigation with LocalSend blue focus indicators.
-          - **Hardware Acceleration**: Low-latency H.264 MediaCodec decoder and 48 kHz PCM audio passthrough to TV speakers.
-          - **Native Picture-in-Picture (PiP)**: Keep your camera feed pinned in the corner of your TV while watching other apps."
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Enable Linux desktop
+        run: flutter config --enable-linux-desktop
+
+      - name: Bootstrap & test Focal Desktop
+        working-directory: apps/focal_desktop
+        run: |
+          flutter create . --platforms=linux --project-name focal_desktop
+          flutter pub get
+          flutter analyze
+          flutter test
+
+      - name: Build .deb and .rpm
+        working-directory: apps/focal_desktop
+        run: bash packaging/build-deb-rpm.sh
+
+      - name: Stage desktop packages
+        run: |
+          mkdir -p release-desktop
+          cp -v apps/focal_desktop/build/dist/*.deb apps/focal_desktop/build/dist/*.rpm release-desktop/ || true
+          ls -la release-desktop/
+
+      - name: Upload desktop packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: focal-desktop-linux-packages
+          path: release-desktop/*
+
+  release:
+    needs: [android, desktop-linux]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download APK artifacts
+        uses: actions/download-artifact@v7
+        with:
+          name: focal-release-apks
+          path: release-apks
+
+      - name: Download desktop package artifacts
+        uses: actions/download-artifact@v7
+        with:
+          name: focal-desktop-linux-packages
+          path: release-desktop
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          shopt -s nullglob
+          assets=(release-apks/*.apk release-desktop/*)
+          if [ ${#assets[@]} -eq 0 ]; then
+            echo "No release assets found" >&2
+            exit 1
+          fi
+          gh release delete "${RELEASE_TAG}" --yes || true
+          gh release create "${RELEASE_TAG}" "${assets[@]}" \
+            --title "Focal ${RELEASE_TAG} (Mobile, TV & Desktop)" \
+            --notes "### Focal ${RELEASE_TAG}
+
+          #### Android APKs
+
+          **Focal Mobile** (camera / screen / audio host + receive)
+          - **app-mobile-arm64-v8a-release.apk** — 64-bit ARM phones
+          - **app-mobile-armeabi-v7a-release.apk** — 32-bit ARM phones
+          - **app-mobile-universal-release.apk** — universal mobile APK
+          - **app-mobile-x86_64-release.apk** / **app-mobile-x86-release.apk** — emulators
+
+          **Focal TV** (receive + screen/audio host; no camera host)
+          - **app-tv-arm64-v8a-release.apk**, **app-tv-armeabi-v7a-release.apk**, **app-tv-universal-release.apk**, **app-tv-x86_64-release.apk**
+
+          #### Linux desktop (FOCL receiver)
+
+          - **focal-desktop_*_amd64.deb** — Debian / Ubuntu (install: \`sudo apt install ./focal-desktop_*.deb\`)
+          - **focal-desktop-*-1.x86_64.rpm** — Fedora / RHEL-compatible (install: \`sudo dnf install ./focal-desktop-*.rpm\`)
+
+          Screen share from the desktop app requires **ffmpeg** on the host. Receive works with VLC for \`~/focal_capture.h264\`.
+
+          #### Pairing
+          - mDNS \`_focal._tcp.\` on LAN; **4-digit PIN** after connect."

@@ -27,6 +27,8 @@ import com.focal.android.server.CameraStreamBroadcaster
 import com.focal.android.server.WebcamStreamService
 import com.focal.android.transport.FocalDiscoveryManager
 import com.focal.android.transport.PairingManager
+import com.focal.android.settings.AppThemeMode
+import com.focal.android.settings.FocalDevicePreferences
 import com.focal.android.util.NetworkUtils
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -78,7 +80,11 @@ data class FocalUiState(
     val isDiscoveryActive: Boolean = false,
     val discoveryServiceName: String? = null,
     val cameraConflictState: CameraConflictState = CameraConflictState.NORMAL,
-    val cameraConflictMessage: String? = null
+    val cameraConflictMessage: String? = null,
+    val deviceDisplayName: String = "",
+    val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
+    val showDeviceSettings: Boolean = false,
+    val vpnMayBlockLocalStreaming: Boolean = false
 )
 
 class FocalViewModel : ViewModel() {
@@ -88,6 +94,7 @@ class FocalViewModel : ViewModel() {
 
     private var timerJob: Job? = null
     private var appContext: Context? = null
+    private var devicePreferencesSubscribed = false
 
     init {
         val localIp = NetworkUtils.getLocalIpAddress()
@@ -197,6 +204,19 @@ class FocalViewModel : ViewModel() {
 
     fun updateContext(context: Context) {
         appContext = context.applicationContext
+        if (!devicePreferencesSubscribed) {
+            devicePreferencesSubscribed = true
+            viewModelScope.launch {
+                FocalDevicePreferences.deviceNameFlow(context).collect { name ->
+                    _uiState.update { it.copy(deviceDisplayName = name) }
+                }
+            }
+            viewModelScope.launch {
+                FocalDevicePreferences.themeModeFlow(context).collect { mode ->
+                    _uiState.update { it.copy(themeMode = mode) }
+                }
+            }
+        }
         val realIp = NetworkUtils.getLocalIpAddress(context)
         updateBattery(context)
         val hasCam = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
@@ -205,10 +225,6 @@ class FocalViewModel : ViewModel() {
 
         val detectedCameras = DeviceCapabilities.detectAvailableCameras(context)
         val detectedProfiles = DeviceCapabilities.detectSupportedProfiles()
-
-        if (_uiState.value.connectionMode == HostConnectionMode.WIFI) {
-            FocalDiscoveryManager.registerService(context, port = 8080, pin = PairingManager.currentPin)
-        }
 
         _uiState.update { state ->
             val activeSensor = detectedCameras.find { it.id == state.selectedSensor.id } ?: detectedCameras.firstOrNull() ?: state.selectedSensor
@@ -225,7 +241,8 @@ class FocalViewModel : ViewModel() {
                 selectedProfile = activeProfile,
                 diagnostics = state.diagnostics.copy(hardwareAccel = hwLabel),
                 isDiscoveryActive = FocalDiscoveryManager.isRegistered,
-                discoveryServiceName = FocalDiscoveryManager.registeredServiceName
+                discoveryServiceName = FocalDiscoveryManager.registeredServiceName,
+                vpnMayBlockLocalStreaming = NetworkUtils.isVpnLikelyBlockingLan(context)
             )
         }
     }
@@ -293,9 +310,9 @@ class FocalViewModel : ViewModel() {
     }
 
     fun setConnectionMode(mode: HostConnectionMode) {
-        if (mode == HostConnectionMode.WIFI) {
+        if (mode == HostConnectionMode.WIFI && _uiState.value.isStreaming) {
             appContext?.let { FocalDiscoveryManager.registerService(it, port = 8080, pin = PairingManager.currentPin) }
-        } else {
+        } else if (mode != HostConnectionMode.WIFI) {
             FocalDiscoveryManager.unregisterService()
         }
         _uiState.update {
@@ -358,14 +375,44 @@ class FocalViewModel : ViewModel() {
         selectProfile(target)
     }
 
-    fun flipCamera() {
+    fun flipCamera(context: Context) {
+        val nextIsFront = !_uiState.value.selectedSensor.isFront
         _uiState.update { state ->
-            val nextSensor = if (state.selectedSensor.isFront) {
-                state.availableSensors.firstOrNull { !it.isFront } ?: state.selectedSensor.copy(isFront = false, name = "Back Main Camera")
+            val nextSensor = if (nextIsFront) {
+                state.availableSensors.firstOrNull { it.isFront }
+                    ?: state.selectedSensor.copy(isFront = true, name = "Front Camera")
             } else {
-                state.availableSensors.firstOrNull { it.isFront } ?: state.selectedSensor.copy(isFront = true, name = "Front Camera")
+                state.availableSensors.firstOrNull { !it.isFront }
+                    ?: state.selectedSensor.copy(isFront = false, name = "Back Main Camera")
             }
             state.copy(selectedSensor = nextSensor)
+        }
+        CameraCapturePipeline.switchCamera(context, _uiState.value.selectedSensor.isFront)
+    }
+
+    fun setShowDeviceSettings(show: Boolean) {
+        _uiState.update { it.copy(showDeviceSettings = show) }
+    }
+
+    fun saveDeviceName(context: Context, name: String) {
+        viewModelScope.launch {
+            FocalDevicePreferences.setDeviceName(context, name)
+            if (_uiState.value.isStreaming && _uiState.value.connectionMode == HostConnectionMode.WIFI) {
+                FocalDiscoveryManager.unregisterService()
+                FocalDiscoveryManager.registerService(context.applicationContext, port = 8080, pin = PairingManager.currentPin)
+                _uiState.update {
+                    it.copy(
+                        isDiscoveryActive = FocalDiscoveryManager.isRegistered,
+                        discoveryServiceName = FocalDiscoveryManager.registeredServiceName
+                    )
+                }
+            }
+        }
+    }
+
+    fun saveThemeMode(context: Context, mode: AppThemeMode) {
+        viewModelScope.launch {
+            FocalDevicePreferences.setThemeMode(context, mode)
         }
     }
 
@@ -460,16 +507,22 @@ class FocalViewModel : ViewModel() {
             try {
                 when (_uiState.value.streamSource) {
                     StreamSource.SCREEN -> {
-                        if (mediaProjectionResultData != null) {
-                            StreamSessionController.startScreenStream(
-                                context = context,
-                                mediaProjectionResultCode = mediaProjectionResultCode,
-                                mediaProjectionResultData = mediaProjectionResultData,
-                                connectionMode = _uiState.value.connectionMode,
-                                streamMode = _uiState.value.streamMode,
-                                pairingPin = streamPin
-                            )
+                        if (mediaProjectionResultData == null) {
+                            return
                         }
+                        CameraCapturePipeline.unbind()
+                        StreamSessionController.startScreenStream(
+                            context = context,
+                            mediaProjectionResultCode = mediaProjectionResultCode,
+                            mediaProjectionResultData = mediaProjectionResultData,
+                            connectionMode = _uiState.value.connectionMode,
+                            streamMode = _uiState.value.streamMode,
+                            pairingPin = streamPin,
+                            profile = currentProfile.copy(
+                                fps = clamped.fps,
+                                bitrateMbps = clamped.bitrateMbps
+                            )
+                        )
                     }
                     StreamSource.AUDIO_ONLY -> {
                         StreamSessionController.startAudioOnlyStream(
@@ -484,7 +537,8 @@ class FocalViewModel : ViewModel() {
                             connectionMode = _uiState.value.connectionMode,
                             streamMode = _uiState.value.streamMode,
                             pairingPin = streamPin,
-                            profile = currentProfile.copy(fps = clamped.fps, bitrateMbps = clamped.bitrateMbps)
+                            profile = currentProfile.copy(fps = clamped.fps, bitrateMbps = clamped.bitrateMbps),
+                            useFrontCamera = _uiState.value.selectedSensor.isFront
                         )
                     }
                 }

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Focal
+GenericName=Focal Desktop
+Comment=Receive camera and screen streams from Focal on your LAN
+Exec=focal_desktop
+Icon=com.focal.desktop
+StartupWMClass=com.focal.desktop
+Categories=Network;Video;Utility;
+Terminal=false

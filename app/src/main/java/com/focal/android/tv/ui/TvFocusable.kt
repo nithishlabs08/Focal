@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,10 +29,12 @@ fun Modifier.tvFocusable(
     focusedBorderWidth: Dp = 3.dp,
     unfocusedBorderWidth: Dp = 0.dp,
     focusedBorderColor: Color? = null,
-    unfocusedBorderColor: Color = Color.Transparent
+    unfocusedBorderColor: Color = Color.Transparent,
+    interactionSource: InteractionSource? = null
 ): Modifier = composed {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isFocused by interactionSource.collectIsFocusedAsState()
+    val source = interactionSource as? MutableInteractionSource
+        ?: remember { MutableInteractionSource() }
+    val isFocused by source.collectIsFocusedAsState()
 
     val targetColor = if (isFocused) {
         focusedBorderColor ?: MaterialTheme.colorScheme.primary
@@ -52,6 +55,6 @@ fun Modifier.tvFocusable(
     )
 
     this
-        .focusable(interactionSource = interactionSource)
+        .focusable(interactionSource = source)
         .border(width = borderWidth, color = borderColor, shape = shape)
 }

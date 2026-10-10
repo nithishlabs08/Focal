@@ -1,7 +1,8 @@
 package com.focal.android.tv.client
 
+import android.content.Context
 import android.util.Log
-import com.focal.android.transport.FocalLanTls
+import com.focal.android.transport.FocalLanNetwork
 import com.focal.android.transport.FocalSessionCrypto
 import com.focal.android.transport.PacketType
 import com.focal.android.transport.StreamPacket
@@ -83,14 +84,17 @@ class TvStreamClient(
         private const val RECONNECT_DELAY_MS = 2500L
     }
 
-    fun connect(camera: DiscoveredCamera, pin: String) {
+    fun connect(camera: DiscoveredCamera, pin: String, context: Context? = null) {
         reconnectJob?.cancel()
         reconnectJob = null
         userInitiatedDisconnect = false
         lastCamera = camera
         lastPin = pin
+        lastContext = context?.applicationContext
         startSession(camera, pin, isReconnect = false)
     }
+
+    private var lastContext: Context? = null
 
     private fun startSession(camera: DiscoveredCamera, pin: String, isReconnect: Boolean) {
         clientJob?.cancel()
@@ -102,16 +106,17 @@ class TvStreamClient(
         clientJob = scope.launch {
             try {
                 val tlsPort = camera.tlsPort
-                val socket = if (tlsPort != null) {
-                    FocalLanTls.clientSocketFactory().createSocket()
-                } else {
-                    Socket()
-                }
-                activeSocket = socket
-                socket.tcpNoDelay = true
-                socket.soTimeout = 12000
                 val connectPort = tlsPort ?: camera.port
-                socket.connect(InetSocketAddress(camera.host, connectPort), CONNECT_TIMEOUT_MS)
+                val useTls = tlsPort != null
+                val socket = FocalLanNetwork.connectTcp(
+                    context = lastContext,
+                    host = camera.host,
+                    port = connectPort,
+                    useTls = useTls,
+                    timeoutMs = CONNECT_TIMEOUT_MS
+                )
+                activeSocket = socket
+                socket.soTimeout = 12000
 
                 val output = socket.getOutputStream()
                 val rawInput = BufferedInputStream(socket.getInputStream())

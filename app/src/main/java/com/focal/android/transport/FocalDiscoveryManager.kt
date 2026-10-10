@@ -5,6 +5,7 @@ import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.os.Build
 import android.util.Log
+import com.focal.android.settings.FocalDevicePreferences
 
 /**
  * Manages mDNS / DNS-SD (Network Service Discovery) auto-discovery.
@@ -40,8 +41,8 @@ object FocalDiscoveryManager {
             val manager = context.applicationContext.getSystemService(Context.NSD_SERVICE) as? NsdManager ?: return
             nsdManager = manager
 
-            val cleanModel = Build.MODEL.replace(" ", "_").filter { it.isLetterOrDigit() || it == '_' || it == '-' }
-            val desiredName = "Focal-$cleanModel"
+            val displayName = FocalDevicePreferences.resolveDisplayName(context.applicationContext)
+            val desiredName = FocalDevicePreferences.mDnsServiceName(displayName)
 
             val serviceInfo = NsdServiceInfo().apply {
                 serviceName = desiredName

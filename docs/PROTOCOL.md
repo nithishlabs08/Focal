@@ -17,7 +17,7 @@ TV and desktop do **not** host camera streams.
 ## Connection (FOCL clients — TV, desktop CLI)
 
 1. TCP connect to `port` or `tls_port` (TLS with trust-on-first-use; embedded LAN cert on mobile).
-2. Send line: `AUTH <6-digit-pin>\n`
+2. Send line: `AUTH <4-digit-pin>\n`
 3. Read line: `AUTH_OK ENC1` (encryption enabled) or `AUTH_ERR …`
 4. Read binary **FOCL** frames until disconnect.
 

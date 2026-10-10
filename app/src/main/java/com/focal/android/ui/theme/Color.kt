@@ -6,13 +6,13 @@ import androidx.compose.ui.graphics.Color
 // LocalSend Design System - Modern Slate Palette with Vibrant Blue Accent
 // =========================================================================
 
-// Primary Blue Accent (LocalSend Blue 500 / 600)
-val LocalSendBlue = Color(0xFF2563EB)                // Crisp royal blue
-val LocalSendBlueDark = Color(0xFF60A5FA)            // Bright light blue for dark surfaces
-val LocalSendBlueLightContainer = Color(0xFFDBEAFE)    // Soft sky blue container (100)
-val LocalSendBlueDarkContainer = Color(0xFF1E3A8A)     // Deep slate-blue container (900)
-val LocalSendBlueOnContainerLight = Color(0xFF1E40AF)
-val LocalSendBlueOnContainerDark = Color(0xFFBFDBFE)
+// Primary accent (focal-web / LocalSend green)
+val LocalSendBlue = Color(0xFF006A60)
+val LocalSendBlueDark = Color(0xFF82D5C8)
+val LocalSendBlueLightContainer = Color(0xFFCCE8E2)
+val LocalSendBlueDarkContainer = Color(0xFF1A3D38)
+val LocalSendBlueOnContainerLight = Color(0xFF004D45)
+val LocalSendBlueOnContainerDark = Color(0xFFB8EDE4)
 
 // Secondary (Slate Neutral Accent)
 val LocalSendSecondaryLight = Color(0xFF475569)
@@ -28,7 +28,7 @@ val LocalSendError = Color(0xFFEF4444)                // Coral Red
 val LocalSendErrorDark = Color(0xFFF87171)
 
 // Dark Theme Surfaces (LocalSend's Deep Charcoal-Slate)
-val LocalSendDarkBackground = Color(0xFF11151C)       // Deep slate-charcoal
+val LocalSendDarkBackground = Color(0xFF0E1513)
 val LocalSendDarkSurface = Color(0xFF11151C)
 val LocalSendDarkCard = Color(0xFF1A202C)             // Clean card surface
 val LocalSendDarkContainerLow = Color(0xFF151B26)
@@ -40,7 +40,7 @@ val LocalSendDarkOnSurfaceVariant = Color(0xFF94A3B8) // Muted slate text
 val LocalSendDarkOutline = Color(0xFF334155)
 
 // Light Theme Surfaces (LocalSend's Clean Off-White Slate)
-val LocalSendLightBackground = Color(0xFFF8FAFC)      // Crisp slate canvas
+val LocalSendLightBackground = Color(0xFFF4FBF8)
 val LocalSendLightSurface = Color(0xFFF8FAFC)
 val LocalSendLightCard = Color(0xFFFFFFFF)            // Pure white card
 val LocalSendLightContainerLow = Color(0xFFF1F5F9)

@@ -166,6 +166,11 @@ object CameraCapturePipeline {
         }, ContextCompat.getMainExecutor(context))
     }
 
+    fun switchCamera(context: Context, isFront: Boolean): Boolean {
+        isFrontCamera = isFront
+        return rebind(context)
+    }
+
     fun rebind(context: Context): Boolean {
         val provider = cameraProvider ?: return false
         val lifecycleOwner = currentLifecycleOwner ?: return false

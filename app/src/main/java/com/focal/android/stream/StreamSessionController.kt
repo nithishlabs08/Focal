@@ -30,7 +30,8 @@ object StreamSessionController {
         connectionMode: HostConnectionMode = HostConnectionMode.WIFI,
         streamMode: StreamMode = StreamMode.VIDEO_ONLY,
         pairingPin: String? = null,
-        profile: OutputProfile? = null
+        profile: OutputProfile? = null,
+        useFrontCamera: Boolean = false
     ) {
         if (!FocalRoles.canHostCameraStream) return
         val pin = pairingPin ?: PairingManager.generateNewPin()
@@ -40,7 +41,8 @@ object StreamSessionController {
             connectionMode = connectionMode,
             streamMode = streamMode,
             streamSource = StreamSource.CAMERA,
-            profile = profile
+            profile = profile,
+            useFrontCamera = useFrontCamera
         )
         registerDiscoveryIfWifi(context, connectionMode, pin)
     }
@@ -68,7 +70,8 @@ object StreamSessionController {
         mediaProjectionResultData: Intent,
         connectionMode: HostConnectionMode = HostConnectionMode.WIFI,
         streamMode: StreamMode = StreamMode.VIDEO_ONLY,
-        pairingPin: String? = null
+        pairingPin: String? = null,
+        profile: OutputProfile? = null
     ) {
         if (!FocalRoles.canHostScreenOrAudioStream) return
         val pin = pairingPin ?: PairingManager.generateNewPin()
@@ -79,7 +82,8 @@ object StreamSessionController {
             streamMode = streamMode,
             streamSource = StreamSource.SCREEN,
             mediaProjectionResultCode = mediaProjectionResultCode,
-            mediaProjectionResultData = mediaProjectionResultData
+            mediaProjectionResultData = mediaProjectionResultData,
+            profile = profile
         )
         registerDiscoveryIfWifi(context, connectionMode, pin)
     }

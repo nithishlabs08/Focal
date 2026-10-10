@@ -9,6 +9,7 @@ import com.focal.android.media.AudioCaptureListener
 import com.focal.android.media.AudioController
 import com.focal.android.media.DeviceCapabilities
 import com.focal.android.media.RecoveryManager
+import com.focal.android.transport.FocalLanNetwork
 import com.focal.android.transport.PacketType
 import com.focal.android.transport.StreamPacket
 import com.focal.android.transport.TransportManager
@@ -266,5 +267,12 @@ class ExampleUnitTest {
         // Clean shutdown
         tm.stop()
         assertEquals(0, tm.connectedClientsCount.value)
+    }
+
+    @Test
+    fun focalLanNetwork_recognizesPrivateLanHosts() {
+        assertTrue(FocalLanNetwork.isPrivateLanHost("192.168.1.42"))
+        assertTrue(FocalLanNetwork.isPrivateLanHost("10.0.0.5"))
+        assertFalse(FocalLanNetwork.isPrivateLanHost("8.8.8.8"))
     }
 }

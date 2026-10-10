@@ -18,7 +18,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -59,7 +58,7 @@ fun TvDeviceCard(
                 if (isFocused) MaterialTheme.colorScheme.surfaceContainerHighest
                 else MaterialTheme.colorScheme.surfaceContainer
             )
-            .tvFocusable(shape = cardShape)
+            .tvFocusable(shape = cardShape, interactionSource = interactionSource)
             .clickable(interactionSource = interactionSource, indication = null) { onClick() }
             .padding(horizontal = 20.dp, vertical = 16.dp)
             .testTag("tv_device_card_${camera.id}"),

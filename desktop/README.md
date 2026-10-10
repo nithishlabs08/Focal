@@ -2,6 +2,8 @@
 
 Minimal **receive-only** CLI viewer for FOCL streams from the **Focal phone app**. Desktop does not send camera video.
 
+**GUI (Flutter, Linux / Windows / macOS):** see [`../apps/focal_desktop/README.md`](../apps/focal_desktop/README.md).
+
 ## Requirements
 
 - Python 3.10+

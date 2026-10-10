@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark-mode launcher (focal-web .dark tokens) -->
+    <color name="focal_bg">#FF0E1513</color>
+    <color name="focal_bg_dark">#FF0E1513</color>
+    <color name="focal_accent">#FF82D5C8</color>
+</resources>

@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -34,7 +35,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -71,7 +71,6 @@ fun TvPlayerView(
     var isMuted by remember { mutableStateOf(audioPlayer.isMuted) }
     var isFitMode by remember { mutableStateOf(true) }
 
-    // Auto-hide HUD after 4 seconds
     LaunchedEffect(showHud, isPipMode) {
         if (showHud && !isPipMode) {
             delay(4000)
@@ -91,7 +90,6 @@ fun TvPlayerView(
             },
         contentAlignment = Alignment.Center
     ) {
-        // Hardware SurfaceView for MediaCodec video rendering
         AndroidView(
             factory = { context ->
                 SurfaceView(context).apply {
@@ -119,7 +117,6 @@ fun TvPlayerView(
             }
         )
 
-        // TV Remote HUD Overlay (Only visible when not in PiP mode)
         if (!isPipMode) {
             AnimatedVisibility(
                 visible = showHud,
@@ -130,16 +127,14 @@ fun TvPlayerView(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.5f))
-                        .padding(24.dp)
+                        .background(Color.Black.copy(alpha = 0.55f))
+                        .padding(horizontal = TvLayout.screenHorizontalPadding, vertical = TvLayout.screenVerticalPadding)
                 ) {
-                    // Top Info Bar
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .align(Alignment.TopStart),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
@@ -148,105 +143,117 @@ fun TvPlayerView(
                                     .clip(CircleShape)
                                     .background(MaterialTheme.colorScheme.primary)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
                             Text(
                                 text = "LIVE • ${camera.name}",
-                                style = MaterialTheme.typography.titleMedium,
+                                style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = Color.White,
+                                maxLines = 1
                             )
                         }
 
-                        // Stream Metrics Pills
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            MetricPill(label = "FPS", value = "%.1f".format(fps))
-                            MetricPill(label = "Bitrate", value = "%.1f Mbps".format(bitrateMbps))
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            item { MetricPill(label = "FPS", value = "%.1f".format(fps)) }
+                            item { MetricPill(label = "Bitrate", value = "%.1f Mbps".format(bitrateMbps)) }
                             if (latencyMs > 0) {
-                                MetricPill(label = "Latency", value = "${latencyMs}ms")
+                                item { MetricPill(label = "Latency", value = "${latencyMs}ms") }
                             }
                         }
                     }
 
-                    // Bottom Control Bar
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .align(Alignment.BottomCenter),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        // Quick Action Buttons
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            // Mute / Unmute Button
-                            Button(
-                                onClick = {
-                                    isMuted = audioPlayer.toggleMute()
-                                },
-                                modifier = Modifier
-                                    .height(44.dp)
-                                    .tvFocusable(shape = RoundedCornerShape(22.dp)),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (isMuted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.surfaceContainerHigh
-                                ),
-                                shape = RoundedCornerShape(22.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (isMuted) Icons.AutoMirrored.Filled.VolumeMute else Icons.AutoMirrored.Filled.VolumeUp,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(18.dp)
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            item {
+                                PlayerControlButton(
+                                    onClick = { isMuted = audioPlayer.toggleMute() },
+                                    containerColor = if (isMuted) {
+                                        MaterialTheme.colorScheme.error
+                                    } else {
+                                        MaterialTheme.colorScheme.surfaceContainerHigh
+                                    },
+                                    icon = {
+                                        Icon(
+                                            imageVector = if (isMuted) {
+                                                Icons.AutoMirrored.Filled.VolumeMute
+                                            } else {
+                                                Icons.AutoMirrored.Filled.VolumeUp
+                                            },
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    },
+                                    label = if (isMuted) "Muted" else "Audio on"
                                 )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(text = if (isMuted) "Muted" else "Audio ON", color = Color.White, fontSize = 13.sp)
                             }
-
-                            // Aspect Ratio Mode (Fit vs Crop/Fill)
-                            Button(
-                                onClick = { isFitMode = !isFitMode },
-                                modifier = Modifier
-                                    .height(44.dp)
-                                    .tvFocusable(shape = RoundedCornerShape(22.dp)),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                                ),
-                                shape = RoundedCornerShape(22.dp)
-                            ) {
-                                Icon(imageVector = Icons.Default.AspectRatio, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(text = if (isFitMode) "16:9 Fit" else "Fill Screen", color = Color.White, fontSize = 13.sp)
+                            item {
+                                PlayerControlButton(
+                                    onClick = { isFitMode = !isFitMode },
+                                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    icon = {
+                                        Icon(
+                                            imageVector = Icons.Default.AspectRatio,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    },
+                                    label = if (isFitMode) "16:9 fit" else "Fill screen"
+                                )
                             }
-
-                            // Picture-in-Picture Button
-                            Button(
-                                onClick = onEnterPip,
-                                modifier = Modifier
-                                    .height(44.dp)
-                                    .tvFocusable(shape = RoundedCornerShape(22.dp)),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                                ),
-                                shape = RoundedCornerShape(22.dp)
-                            ) {
-                                Icon(imageVector = Icons.Default.PictureInPicture, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(text = "Picture in Picture", color = Color.White, fontSize = 13.sp)
+                            item {
+                                PlayerControlButton(
+                                    onClick = onEnterPip,
+                                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    icon = {
+                                        Icon(
+                                            imageVector = Icons.Default.PictureInPicture,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    },
+                                    label = "Picture in picture"
+                                )
                             }
                         }
 
-                        // Disconnect Button
                         Button(
                             onClick = onDisconnect,
                             modifier = Modifier
-                                .height(44.dp)
-                                .tvFocusable(shape = RoundedCornerShape(22.dp)),
+                                .fillMaxWidth()
+                                .height(52.dp)
+                                .tvFocusable(shape = RoundedCornerShape(26.dp)),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.error
                             ),
-                            shape = RoundedCornerShape(22.dp)
+                            shape = RoundedCornerShape(26.dp)
                         ) {
-                            Icon(imageVector = Icons.Default.Close, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(text = "Disconnect", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Disconnect",
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
                     }
                 }
@@ -256,15 +263,42 @@ fun TvPlayerView(
 }
 
 @Composable
+private fun PlayerControlButton(
+    onClick: () -> Unit,
+    containerColor: Color,
+    icon: @Composable () -> Unit,
+    label: String
+) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier
+            .height(48.dp)
+            .tvFocusable(shape = RoundedCornerShape(24.dp)),
+        colors = ButtonDefaults.buttonColors(containerColor = containerColor),
+        shape = RoundedCornerShape(24.dp)
+    ) {
+        icon()
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(text = label, color = Color.White, fontSize = 14.sp)
+    }
+}
+
+@Composable
 private fun MetricPill(label: String, value: String) {
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(12.dp))
             .background(Color.Black.copy(alpha = 0.6f))
-            .padding(horizontal = 10.dp, vertical = 5.dp),
+            .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text = "$label: ", fontSize = 11.sp, color = Color.LightGray)
-        Text(text = value, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, color = Color.White)
+        Text(text = "$label: ", fontSize = 12.sp, color = Color.LightGray)
+        Text(
+            text = value,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Monospace,
+            color = Color.White
+        )
     }
 }

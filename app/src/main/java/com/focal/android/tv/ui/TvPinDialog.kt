@@ -40,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.focal.android.transport.PairingManager
 import com.focal.android.tv.model.DiscoveredCamera
 
 @Composable
@@ -75,7 +76,7 @@ fun TvPinDialog(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "Enter the 6-digit PIN shown on your phone",
+                            text = "Enter the ${PairingManager.PIN_LENGTH}-digit PIN shown on the sender",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -87,12 +88,11 @@ fun TvPinDialog(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // 6-digit boxes
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    for (i in 0 until 6) {
+                    for (i in 0 until PairingManager.PIN_LENGTH) {
                         val digit = pin.getOrNull(i)?.toString() ?: ""
                         val isCurrent = i == pin.length
                         Box(
@@ -146,7 +146,7 @@ fun TvPinDialog(
                                         when (key) {
                                             "DEL" -> if (pin.isNotEmpty()) pin = pin.dropLast(1)
                                             "C" -> pin = ""
-                                            else -> if (pin.length < 6) pin += key
+                                            else -> if (pin.length < PairingManager.PIN_LENGTH) pin += key
                                         }
                                     }
                                 )
@@ -178,10 +178,10 @@ fun TvPinDialog(
 
                     Button(
                         onClick = {
-                            if (pin.length >= 4) {
+                            if (pin.length == PairingManager.PIN_LENGTH) {
                                 onConnect(pin)
                             } else {
-                                errorMessage = "PIN must be at least 4 digits"
+                                errorMessage = "Enter all ${PairingManager.PIN_LENGTH} digits"
                             }
                         },
                         modifier = Modifier

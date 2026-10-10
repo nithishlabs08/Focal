@@ -7,7 +7,9 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.focal.android.transport.FocalDiscoveryManager
 import com.focal.android.tv.model.DiscoveredCamera
+import com.focal.android.util.NetworkUtils
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,7 +35,9 @@ class TvDiscoveryManager(context: Context) {
     private val _discoveryError = MutableStateFlow<String?>(null)
     val discoveryError: StateFlow<String?> = _discoveryError.asStateFlow()
 
+    /** Key = [endpointKey] (host:port), not raw mDNS service name. */
     private val cameraMap = ConcurrentHashMap<String, DiscoveredCamera>()
+    private val serviceNameToEndpoint = ConcurrentHashMap<String, String>()
     private var discoveryListener: NsdManager.DiscoveryListener? = null
 
     // Sequential resolve queue to prevent NsdManager "FAILURE_ALREADY_ACTIVE" crashes
@@ -67,7 +71,12 @@ class TvDiscoveryManager(context: Context) {
 
             override fun onServiceLost(serviceInfo: NsdServiceInfo) {
                 val serviceName = serviceInfo.serviceName
-                cameraMap.remove(serviceName)
+                serviceNameToEndpoint.remove(serviceName)?.let { endpoint ->
+                    val stillAdvertised = serviceNameToEndpoint.values.any { it == endpoint }
+                    if (!stillAdvertised) {
+                        cameraMap.remove(endpoint)
+                    }
+                }
                 updateList()
             }
 
@@ -109,11 +118,13 @@ class TvDiscoveryManager(context: Context) {
     }
 
     fun addManualCamera(name: String, host: String, port: Int = 8080) {
-        val id = "manual_${host}_$port"
-        val camera = DiscoveredCamera(id = id, name = name, host = host, port = port)
-        cameraMap[id] = camera
+        val endpoint = endpointKey(host, port)
+        val camera = DiscoveredCamera(id = endpoint, name = name, host = host, port = port)
+        cameraMap[endpoint] = camera
         updateList()
     }
+
+    private fun endpointKey(host: String, port: Int): String = "$host:$port"
 
     private fun enqueueResolve(serviceInfo: NsdServiceInfo) {
         resolveQueue.add(serviceInfo)
@@ -146,17 +157,22 @@ class TvDiscoveryManager(context: Context) {
                     val port = resolvedInfo.port
                     val name = resolvedInfo.serviceName
 
-                    if (!hostAddress.isNullOrBlank() && port > 0) {
+                    if (!hostAddress.isNullOrBlank() && port > 0 && !isLocalSender(name, hostAddress)) {
                         val tlsPort = readTlsPort(resolvedInfo)
-                        val friendlyName = name.removePrefix("Focal-").replace("_", " ")
+                        val friendlyName = name.removePrefix("Focal-")
+                            .replace("_", " ")
+                            .replace("-", " ")
+                            .trim()
+                        val endpoint = endpointKey(hostAddress, port)
+                        serviceNameToEndpoint[name] = endpoint
                         val camera = DiscoveredCamera(
-                            id = name,
+                            id = endpoint,
                             name = if (friendlyName.isNotBlank()) friendlyName else "Focal Camera",
                             host = hostAddress,
                             port = port,
                             tlsPort = tlsPort
                         )
-                        cameraMap[name] = camera
+                        cameraMap[endpoint] = camera
                         updateList()
                     }
                     finishResolve()
@@ -174,6 +190,14 @@ class TvDiscoveryManager(context: Context) {
         } catch (_: Exception) {
             finishResolve()
         }
+    }
+
+    private fun isLocalSender(serviceName: String, host: String): Boolean {
+        val registered = FocalDiscoveryManager.registeredServiceName
+        if (!registered.isNullOrBlank() && serviceName == registered) {
+            return true
+        }
+        return host in NetworkUtils.getLocalIpv4Addresses()
     }
 
     private fun NsdServiceInfo.firstHostAddress(): String? {

@@ -9,13 +9,18 @@ import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.focal.android.tv.client.TvAudioPlayer
 import com.focal.android.tv.client.TvClientState
 import com.focal.android.tv.client.TvStreamClient
 import com.focal.android.tv.client.TvVideoDecoder
+import com.focal.android.server.WebcamStreamService
+import com.focal.android.stream.StreamSessionController
 import com.focal.android.tv.discovery.TvDiscoveryManager
 import com.focal.android.ui.receive.ReceivePlaybackCoordinator
 import com.focal.android.ui.theme.FocalTheme
@@ -50,7 +55,10 @@ class TvActivity : ComponentActivity() {
                     videoDecoder = videoDecoder,
                     audioPlayer = audioPlayer,
                     isPipMode = isPipMode,
-                    onEnterPip = { enterPipMode() }
+                    onEnterPip = { enterPipMode() },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .safeDrawingPadding()
                 )
             }
         }
@@ -84,9 +92,15 @@ class TvActivity : ComponentActivity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_BACK && streamClient.connectionState.value == TvClientState.STREAMING) {
-            streamClient.disconnect()
-            return true
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            if (streamClient.connectionState.value == TvClientState.STREAMING) {
+                streamClient.disconnect()
+                return true
+            }
+            if (WebcamStreamService.isRunning.value) {
+                StreamSessionController.stopStream(this)
+                return true
+            }
         }
         return super.onKeyDown(keyCode, event)
     }

@@ -79,6 +79,7 @@ class WebcamStreamService : Service(), LifecycleOwner {
         const val EXTRA_STREAM_SOURCE = "com.focal.android.server.EXTRA_STREAM_SOURCE"
         const val EXTRA_MEDIA_PROJECTION_RESULT_CODE = "com.focal.android.server.EXTRA_MEDIA_PROJECTION_RESULT_CODE"
         const val EXTRA_MEDIA_PROJECTION_RESULT_DATA = "com.focal.android.server.EXTRA_MEDIA_PROJECTION_RESULT_DATA"
+        const val EXTRA_USE_FRONT_CAMERA = "com.focal.android.server.EXTRA_USE_FRONT_CAMERA"
 
         private val _isRunning = MutableStateFlow(false)
         val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
@@ -115,7 +116,8 @@ class WebcamStreamService : Service(), LifecycleOwner {
             streamSource: StreamSource = StreamSource.CAMERA,
             profile: OutputProfile? = null,
             mediaProjectionResultCode: Int = 0,
-            mediaProjectionResultData: Intent? = null
+            mediaProjectionResultData: Intent? = null,
+            useFrontCamera: Boolean = false
         ) {
             currentPairingPin = pairingPin
             val intent = Intent(context, WebcamStreamService::class.java).apply {
@@ -126,8 +128,9 @@ class WebcamStreamService : Service(), LifecycleOwner {
                 putExtra(EXTRA_STREAM_SOURCE, streamSource.name)
                 if (streamSource == StreamSource.SCREEN && mediaProjectionResultData != null) {
                     putExtra(EXTRA_MEDIA_PROJECTION_RESULT_CODE, mediaProjectionResultCode)
-                    putExtra(EXTRA_MEDIA_PROJECTION_RESULT_DATA, mediaProjectionResultData)
+                    putExtra(EXTRA_MEDIA_PROJECTION_RESULT_DATA, Intent(mediaProjectionResultData))
                 }
+                putExtra(EXTRA_USE_FRONT_CAMERA, useFrontCamera)
                 if (profile != null) {
                     val parts = profile.resolution.split("x")
                     if (parts.size == 2) {
@@ -215,6 +218,8 @@ class WebcamStreamService : Service(), LifecycleOwner {
             intent?.getParcelableExtra(EXTRA_MEDIA_PROJECTION_RESULT_DATA)
         }
 
+        val useFrontCamera = intent?.getBooleanExtra(EXTRA_USE_FRONT_CAMERA, false) ?: false
+
         val rawWidth = intent?.getIntExtra(EXTRA_WIDTH, 1920) ?: 1920
         val rawHeight = intent?.getIntExtra(EXTRA_HEIGHT, 1080) ?: 1080
         val rawFps = intent?.getIntExtra(EXTRA_FPS, 30) ?: 30
@@ -274,6 +279,7 @@ class WebcamStreamService : Service(), LifecycleOwner {
             projectionResultCode = projectionResultCode,
             projectionResultData = projectionResultData,
             hasMicPermission = hasMicPermission,
+            useFrontCamera = useFrontCamera,
             width = clamped.width,
             height = clamped.height,
             fps = clamped.fps,
@@ -297,6 +303,7 @@ class WebcamStreamService : Service(), LifecycleOwner {
         projectionResultCode: Int,
         projectionResultData: Intent?,
         hasMicPermission: Boolean,
+        useFrontCamera: Boolean,
         width: Int,
         height: Int,
         fps: Int,
@@ -420,6 +427,7 @@ class WebcamStreamService : Service(), LifecycleOwner {
                     isReady = true
                 )
             } else if (streamSource == StreamSource.SCREEN && projectionResultData != null) {
+                CameraCapturePipeline.unbind()
                 val encoderSurface = videoEncoder?.inputSurface
                 if (encoderSurface == null) {
                     _startupError.value = "Encoder surface not ready for screen capture"
@@ -455,7 +463,7 @@ class WebcamStreamService : Service(), LifecycleOwner {
                 CameraCapturePipeline.bindSessionCamera(
                     context = applicationContext,
                     lifecycleOwner = this,
-                    isFront = false,
+                    isFront = useFrontCamera,
                     width = width,
                     height = height,
                     onFirstFrame = {
@@ -623,7 +631,12 @@ class WebcamStreamService : Service(), LifecycleOwner {
         audioEnabled: Boolean,
         isReady: Boolean
     ): android.app.Notification {
-        val launchIntent = Intent(this, MainActivity::class.java)
+        val launchActivity = if (FocalRoles.canHostCameraStream) {
+            MainActivity::class.java
+        } else {
+            com.focal.android.tv.ui.TvActivity::class.java
+        }
+        val launchIntent = Intent(this, launchActivity)
         val pendingIntent = PendingIntent.getActivity(
             this,
             0,

@@ -1,0 +1,12 @@
+---
+description: Follow repo root AGENTS.md for all Focal work
+alwaysApply: true
+---
+
+# Focal agent bootstrap
+
+Before coding in this repository:
+
+1. Read and follow **[AGENTS.md](../../AGENTS.md)** at the repo root (product scope, layout, git/CI rules, Android vs Flutter).
+2. When you change architecture, flavors, CI, or agent workflow, **update AGENTS.md** in the same PR/session.
+3. Prefer minimal, tested diffs; run commands locally when tools are available.
